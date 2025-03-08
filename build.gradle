@@ -1,0 +1,51 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '3.4.3'
+	id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'lt.dev'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+}
+
+repositories {
+	mavenCentral() // Primary repository
+	maven { url 'https://repo1.maven.org/maven2/' } // Direct Maven Central
+	maven { url 'https://maven.google.com/' } // Google Maven
+}
+
+dependencies {
+	// Spring Boot starters
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-mail'
+
+	// Gmail API and Google dependencies
+	implementation 'com.google.apis:google-api-services-gmail:v1-rev20211108-1.32.1' // Stable version
+	implementation 'com.google.api-client:google-api-client:2.4.0'
+	implementation 'com.google.http-client:google-http-client-jackson2:1.44.1'
+	implementation 'com.google.auth:google-auth-library-oauth2-http:1.23.0'
+	implementation 'com.google.guava:guava:32.1.3-jre'
+
+	// For PostConstruct
+	implementation 'javax.annotation:javax.annotation-api:1.3.2'
+
+	// Lombok
+	implementation 'org.projectlombok:lombok:1.18.32'
+	annotationProcessor 'org.projectlombok:lombok:1.18.32'
+
+	// Test dependencies
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}
+
+tasks.withType(JavaCompile) {
+	options.release = 21
+}
