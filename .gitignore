@@ -33,8 +33,6 @@ out/
 /nbdist/
 /.nb-gradle/
 
-
-
 # Ignore application properties with sensitive data
 
 src/main/resources/application.properties
@@ -43,4 +41,6 @@ src/main/resources/credentials.json
 # Allow default/example configs (optional)
 !application-example.properties
 
+tokens
 
+processed_emails.txt
