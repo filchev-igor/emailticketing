@@ -1,12 +1,14 @@
 package lt.dev.emailticketing;
 
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-import javax.mail.internet.MimeMessage;
+import jakarta.mail.internet.MimeMessage;
 
 @RestController
 public class ReplyController {
@@ -28,15 +30,11 @@ public class ReplyController {
     }
 }
 
+@Setter
+@Getter
 class ReplyRequest {
     private String recipient;
     private String subject;
     private String replyText;
 
-    public String getRecipient() { return recipient; }
-    public void setRecipient(String recipient) { this.recipient = recipient; }
-    public String getSubject() { return subject; }
-    public void setSubject(String subject) { this.subject = subject; }
-    public String getReplyText() { return replyText; }
-    public void setReplyText(String replyText) { this.replyText = replyText; }
 }
