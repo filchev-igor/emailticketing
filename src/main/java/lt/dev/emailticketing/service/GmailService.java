@@ -82,15 +82,16 @@ public class GmailService {
                 String emailId = msg.getId();
                 if (!processedEmailIds.contains(emailId)) {
                     Message fullMsg = gmail.users().messages().get("me", emailId).execute();
-                    String senderEmail = extractEmail(fullMsg.getPayload().getHeaders().stream()
+                    String fromHeader = fullMsg.getPayload().getHeaders().stream()
                             .filter(h -> h.getName().equals("From"))
-                            .findFirst().map(h -> h.getValue()).orElse("Unknown"));
+                            .findFirst().map(h -> h.getValue()).orElse("Unknown");
+                    SenderInfo senderInfo = extractSenderInfo(fromHeader);
                     String subject = fullMsg.getPayload().getHeaders().stream()
                             .filter(h -> h.getName().equals("Subject"))
                             .findFirst().map(h -> h.getValue()).orElse("No Subject");
                     String body = extractBody(fullMsg);
 
-                    sendToApex(emailId, senderEmail, subject, body);
+                    sendToApex(emailId, senderInfo.getName(), senderInfo.getEmail(), subject, body);
                 }
             }
         } else {
@@ -98,11 +99,11 @@ public class GmailService {
         }
     }
 
-    private void sendToApex(String emailId, String senderEmail, String subject, String body) {
+    private void sendToApex(String emailId, String senderName, String senderEmail, String subject, String body) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
 
-        EmailData emailData = new EmailData(emailId, senderEmail, subject, body);
+        EmailData emailData = new EmailData(emailId, senderName, senderEmail, subject, body);
         String json;
         try {
             json = objectMapper.writeValueAsString(emailData);
@@ -117,7 +118,6 @@ public class GmailService {
             ResponseEntity<String> response = restTemplate.postForEntity(apexEndpoint, entity, String.class);
             logger.info("APEX Response Status: {}", response.getStatusCode());
             logger.info("APEX Response Body: {}", response.getBody() != null ? response.getBody() : "Empty");
-            // Only mark as processed if the APEX call succeeds
             processedEmailIds.add(emailId);
             saveProcessedEmailIds();
         } catch (HttpClientErrorException | HttpServerErrorException e) {
@@ -130,9 +130,19 @@ public class GmailService {
         }
     }
 
-    private String extractEmail(String fromHeader) {
-        if (fromHeader == null || fromHeader.isEmpty()) return "unknown@unknown.com";
-        return fromHeader.contains("<") ? fromHeader.substring(fromHeader.indexOf("<") + 1, fromHeader.indexOf(">")) : fromHeader.trim();
+    private SenderInfo extractSenderInfo(String fromHeader) {
+        String name = "Unknown";
+        String email = "unknown@unknown.com";
+        if (fromHeader != null && !fromHeader.isEmpty()) {
+            if (fromHeader.contains("<")) {
+                name = fromHeader.substring(0, fromHeader.indexOf("<")).trim();
+                email = fromHeader.substring(fromHeader.indexOf("<") + 1, fromHeader.indexOf(">")).trim();
+            } else {
+                email = fromHeader.trim();
+                name = email.contains("@") ? email.substring(0, email.indexOf("@")) : email;
+            }
+        }
+        return new SenderInfo(name, email);
     }
 
     private String extractBody(Message message) {
@@ -156,10 +166,7 @@ public class GmailService {
     private String decodeBase64(String encodedData) {
         if (encodedData == null) return "";
         try {
-            // Gmail uses standard Base64, not URL-safe Base64
-            // Replace URL-safe characters to standard Base64 characters
             String standardBase64 = encodedData.replace('-', '+').replace('_', '/');
-            // Add padding if necessary
             int padding = (4 - standardBase64.length() % 4) % 4;
             for (int i = 0; i < padding; i++) {
                 standardBase64 += "=";
@@ -197,20 +204,36 @@ public class GmailService {
         }
     }
 
+    private static class SenderInfo {
+        private final String name;
+        private final String email;
+
+        public SenderInfo(String name, String email) {
+            this.name = name;
+            this.email = email;
+        }
+
+        public String getName() { return name; }
+        public String getEmail() { return email; }
+    }
+
     private static class EmailData {
         private final String email_id;
+        private final String sender_name;
         private final String sender_email;
         private final String subject;
         private final String body;
 
-        public EmailData(String email_id, String sender_email, String subject, String body) {
+        public EmailData(String email_id, String sender_name, String sender_email, String subject, String body) {
             this.email_id = email_id;
+            this.sender_name = sender_name;
             this.sender_email = sender_email;
             this.subject = subject;
             this.body = body;
         }
 
         public String getEmail_id() { return email_id; }
+        public String getSender_name() { return sender_name; }
         public String getSender_email() { return sender_email; }
         public String getSubject() { return subject; }
         public String getBody() { return body; }
