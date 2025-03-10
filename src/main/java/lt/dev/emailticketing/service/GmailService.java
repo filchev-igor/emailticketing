@@ -155,7 +155,20 @@ public class GmailService {
 
     private String decodeBase64(String encodedData) {
         if (encodedData == null) return "";
-        return new String(Base64.getUrlDecoder().decode(encodedData.replace('-', '+').replace('_', '/')));
+        try {
+            // Gmail uses standard Base64, not URL-safe Base64
+            // Replace URL-safe characters to standard Base64 characters
+            String standardBase64 = encodedData.replace('-', '+').replace('_', '/');
+            // Add padding if necessary
+            int padding = (4 - standardBase64.length() % 4) % 4;
+            for (int i = 0; i < padding; i++) {
+                standardBase64 += "=";
+            }
+            return new String(Base64.getDecoder().decode(standardBase64));
+        } catch (IllegalArgumentException e) {
+            logger.error("Failed to decode Base64 data: {}", encodedData, e);
+            return "";
+        }
     }
 
     private void loadProcessedEmailIds() {
