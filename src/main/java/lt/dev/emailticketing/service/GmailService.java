@@ -59,7 +59,27 @@ public class GmailService {
 
     @PostConstruct
     public void init() throws Exception {
-        loadProcessedEmailIds();
+        int retries = 3;
+        while (retries > 0) {
+            try {
+                loadProcessedEmailIds();
+                if (!processedEmailIds.isEmpty()) {
+                    logger.info("Successfully loaded processed email IDs: {}", processedEmailIds);
+                    break; // Success, exit loop
+                }
+                logger.warn("Processed email IDs list is empty, retrying...");
+            } catch (Exception e) {
+                logger.error("Failed to load processed email IDs: {}", e.getMessage(), e);
+            }
+            retries--;
+            if (retries > 0) {
+                Thread.sleep(2000); // Wait 2 seconds before retrying
+            }
+        }
+        if (processedEmailIds.isEmpty()) {
+            logger.warn("Failed to load processed email IDs after 3 retries. Proceeding with empty set, which may cause reprocessing.");
+        }
+
         NetHttpTransport httpTransport = GoogleNetHttpTransport.newTrustedTransport();
         GoogleClientSecrets clientSecrets = GoogleClientSecrets.load(JSON_FACTORY,
                 new InputStreamReader(new ClassPathResource("credentials.json").getInputStream()));
@@ -102,6 +122,13 @@ public class GmailService {
         } else {
             logger.info("No new messages found in inbox.");
         }
+    }
+
+    @Scheduled(fixedRate = 3600000) // Run every hour (3600000 ms)
+    public void refreshProcessedEmailIds() {
+        logger.info("Refreshing processed email IDs to sync with external updates...");
+        loadProcessedEmailIds();
+        logger.info("Refreshed processed email IDs: {}", processedEmailIds);
     }
 
     private void sendToApex(String emailId, String senderName, String senderEmail, String subject, String body) {
@@ -148,17 +175,23 @@ public class GmailService {
                     entity,
                     new ParameterizedTypeReference<List<String>>() {}
             );
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                processedEmailIds.addAll(response.getBody());
-                logger.info("Loaded {} processed email IDs from APEX: {}", processedEmailIds.size(), processedEmailIds);
+            if (response.getStatusCode() == HttpStatus.OK) {
+                if (response.getBody() != null) {
+                    processedEmailIds.addAll(response.getBody());
+                    logger.info("Loaded {} processed email IDs from APEX: {}", processedEmailIds.size(), processedEmailIds);
+                } else {
+                    logger.warn("Received 200 OK but body is null or empty from {}", apexProcessedEmailsEndpoint);
+                }
             } else {
                 logger.warn("Failed to load processed email IDs. Status: {}, Body: {}", response.getStatusCode(), response.getBody());
             }
         } catch (HttpClientErrorException | HttpServerErrorException e) {
             logger.error("HTTP Error loading processed email IDs: {} - {}", e.getStatusCode(), e.getStatusText());
             logger.error("Response Body: {}", e.getResponseBodyAsString() != null ? e.getResponseBodyAsString() : "Empty");
+            throw e; // Re-throw to trigger retry in init()
         } catch (Exception e) {
             logger.error("Failed to load processed email IDs: {}", e.getMessage(), e);
+            throw new RuntimeException("Unexpected error loading processed email IDs", e); // Re-throw to trigger retry
         }
     }
 
