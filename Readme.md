@@ -14,3 +14,4 @@ be moved~~
 7. Apex page for observing tickets
 8. Apex page for observing replies
 9. Add link to replies for Apex tickets page
+10. ~~Add authorization for requests~~
