@@ -1,5 +1,6 @@
 package lt.dev.emailticketing.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.api.client.auth.oauth2.Credential;
 import com.google.api.client.extensions.java6.auth.oauth2.AuthorizationCodeInstalledApp;
@@ -17,11 +18,9 @@ import com.google.api.services.gmail.model.MessagePart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.io.ClassPathResource;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.*;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
@@ -29,7 +28,8 @@ import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.PostConstruct;
-import java.io.*;
+import java.io.File;
+import java.io.InputStreamReader;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashSet;
@@ -46,11 +46,13 @@ public class GmailService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private static final JsonFactory JSON_FACTORY = JacksonFactory.getDefaultInstance();
     private static final String TOKENS_DIRECTORY_PATH = "tokens";
-    private static final String PROCESSED_EMAILS_FILE = "processed_emails.txt";
     private Set<String> processedEmailIds;
 
-    @Value("${apex.rest.endpoint}")
-    private String apexEndpoint;
+    @Value("${apex.tickets.endpoint}")
+    private String apexTicketsEndpoint;
+
+    @Value("${apex.processed_emails.endpoint}")
+    private String apexProcessedEmailsEndpoint;
 
     @Value("${oauth2.local.server.port:8888}")
     private int oauth2LocalServerPort;
@@ -81,6 +83,7 @@ public class GmailService {
             for (Message msg : messages) {
                 String emailId = msg.getId();
                 if (!processedEmailIds.contains(emailId)) {
+                    logger.info("Processing new email with ID: {}", emailId);
                     Message fullMsg = gmail.users().messages().get("me", emailId).execute();
                     String fromHeader = fullMsg.getPayload().getHeaders().stream()
                             .filter(h -> h.getName().equals("From"))
@@ -92,6 +95,8 @@ public class GmailService {
                     String body = extractBody(fullMsg);
 
                     sendToApex(emailId, senderInfo.getName(), senderInfo.getEmail(), subject, body);
+                } else {
+                    logger.info("Skipping already processed email with ID: {}", emailId);
                 }
             }
         } else {
@@ -115,11 +120,10 @@ public class GmailService {
 
         HttpEntity<String> entity = new HttpEntity<>(json, headers);
         try {
-            ResponseEntity<String> response = restTemplate.postForEntity(apexEndpoint, entity, String.class);
+            ResponseEntity<String> response = restTemplate.postForEntity(apexTicketsEndpoint, entity, String.class);
             logger.info("APEX Response Status: {}", response.getStatusCode());
             logger.info("APEX Response Body: {}", response.getBody() != null ? response.getBody() : "Empty");
-            processedEmailIds.add(emailId);
-            saveProcessedEmailIds();
+            processedEmailIds.add(emailId); // Add to in-memory set after successful POST
         } catch (HttpClientErrorException | HttpServerErrorException e) {
             logger.error("HTTP Error from APEX: {} - {}", e.getStatusCode(), e.getStatusText());
             logger.error("Response Body: {}", e.getResponseBodyAsString() != null ? e.getResponseBodyAsString() : "Empty");
@@ -127,6 +131,34 @@ public class GmailService {
         } catch (Exception e) {
             logger.error("Failed to send to APEX: {} - {}", e.getClass().getName(), e.getMessage(), e);
             throw e;
+        }
+    }
+
+    private void loadProcessedEmailIds() {
+        processedEmailIds = new HashSet<>();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpEntity<String> entity = new HttpEntity<>(headers);
+
+        try {
+            logger.info("Attempting to load processed email IDs from: {}", apexProcessedEmailsEndpoint);
+            ResponseEntity<List<String>> response = restTemplate.exchange(
+                    apexProcessedEmailsEndpoint,
+                    HttpMethod.GET,
+                    entity,
+                    new ParameterizedTypeReference<List<String>>() {}
+            );
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                processedEmailIds.addAll(response.getBody());
+                logger.info("Loaded {} processed email IDs from APEX: {}", processedEmailIds.size(), processedEmailIds);
+            } else {
+                logger.warn("Failed to load processed email IDs. Status: {}, Body: {}", response.getStatusCode(), response.getBody());
+            }
+        } catch (HttpClientErrorException | HttpServerErrorException e) {
+            logger.error("HTTP Error loading processed email IDs: {} - {}", e.getStatusCode(), e.getStatusText());
+            logger.error("Response Body: {}", e.getResponseBodyAsString() != null ? e.getResponseBodyAsString() : "Empty");
+        } catch (Exception e) {
+            logger.error("Failed to load processed email IDs: {}", e.getMessage(), e);
         }
     }
 
@@ -160,7 +192,7 @@ public class GmailService {
                 }
             }
         }
-        return body.length() > 0 ? body.toString() : message.getSnippet();
+        return !body.isEmpty() ? body.toString() : message.getSnippet();
     }
 
     private String decodeBase64(String encodedData) {
@@ -178,32 +210,6 @@ public class GmailService {
         }
     }
 
-    private void loadProcessedEmailIds() {
-        processedEmailIds = new HashSet<>();
-        File file = new File(PROCESSED_EMAILS_FILE);
-        if (file.exists()) {
-            try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    processedEmailIds.add(line.trim());
-                }
-            } catch (IOException e) {
-                logger.error("Failed to load processed email IDs", e);
-            }
-        }
-    }
-
-    private void saveProcessedEmailIds() {
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(PROCESSED_EMAILS_FILE))) {
-            for (String id : processedEmailIds) {
-                writer.write(id);
-                writer.newLine();
-            }
-        } catch (IOException e) {
-            logger.error("Failed to save processed email IDs", e);
-        }
-    }
-
     private static class SenderInfo {
         private final String name;
         private final String email;
@@ -213,8 +219,13 @@ public class GmailService {
             this.email = email;
         }
 
-        public String getName() { return name; }
-        public String getEmail() { return email; }
+        public String getName() {
+            return name;
+        }
+
+        public String getEmail() {
+            return email;
+        }
     }
 
     private static class EmailData {
@@ -232,10 +243,24 @@ public class GmailService {
             this.body = body;
         }
 
-        public String getEmail_id() { return email_id; }
-        public String getSender_name() { return sender_name; }
-        public String getSender_email() { return sender_email; }
-        public String getSubject() { return subject; }
-        public String getBody() { return body; }
+        public String getEmail_id() {
+            return email_id;
+        }
+
+        public String getSender_name() {
+            return sender_name;
+        }
+
+        public String getSender_email() {
+            return sender_email;
+        }
+
+        public String getSubject() {
+            return subject;
+        }
+
+        public String getBody() {
+            return body;
+        }
     }
 }
