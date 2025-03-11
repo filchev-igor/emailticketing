@@ -48,11 +48,11 @@ public class GmailService {
     private static final String TOKENS_DIRECTORY_PATH = "tokens";
     private Set<String> processedEmailIds;
 
-    @Value("${apex.rest.endpoint}")
-    private String apexEndpoint;
+    @Value("${apex.tickets.endpoint}")
+    private String apexTicketsEndpoint;
 
-    @Value("${apex.processed.endpoint:/processed_emails}")
-    private String processedEndpoint;
+    @Value("${apex.processed_emails.endpoint}")
+    private String apexProcessedEmailsEndpoint;
 
     @Value("${oauth2.local.server.port:8888}")
     private int oauth2LocalServerPort;
@@ -83,6 +83,7 @@ public class GmailService {
             for (Message msg : messages) {
                 String emailId = msg.getId();
                 if (!processedEmailIds.contains(emailId)) {
+                    logger.info("Processing new email with ID: {}", emailId);
                     Message fullMsg = gmail.users().messages().get("me", emailId).execute();
                     String fromHeader = fullMsg.getPayload().getHeaders().stream()
                             .filter(h -> h.getName().equals("From"))
@@ -94,6 +95,8 @@ public class GmailService {
                     String body = extractBody(fullMsg);
 
                     sendToApex(emailId, senderInfo.getName(), senderInfo.getEmail(), subject, body);
+                } else {
+                    logger.info("Skipping already processed email with ID: {}", emailId);
                 }
             }
         } else {
@@ -117,7 +120,7 @@ public class GmailService {
 
         HttpEntity<String> entity = new HttpEntity<>(json, headers);
         try {
-            ResponseEntity<String> response = restTemplate.postForEntity(apexEndpoint, entity, String.class);
+            ResponseEntity<String> response = restTemplate.postForEntity(apexTicketsEndpoint, entity, String.class);
             logger.info("APEX Response Status: {}", response.getStatusCode());
             logger.info("APEX Response Body: {}", response.getBody() != null ? response.getBody() : "Empty");
             processedEmailIds.add(emailId); // Add to in-memory set after successful POST
@@ -138,17 +141,18 @@ public class GmailService {
         HttpEntity<String> entity = new HttpEntity<>(headers);
 
         try {
+            logger.info("Attempting to load processed email IDs from: {}", apexProcessedEmailsEndpoint);
             ResponseEntity<List<String>> response = restTemplate.exchange(
-                    apexEndpoint + processedEndpoint,
+                    apexProcessedEmailsEndpoint,
                     HttpMethod.GET,
                     entity,
                     new ParameterizedTypeReference<List<String>>() {}
             );
-            if (response.getStatusCode() == HttpStatus.OK) {
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 processedEmailIds.addAll(response.getBody());
-                logger.info("Loaded {} processed email IDs from APEX", processedEmailIds.size());
+                logger.info("Loaded {} processed email IDs from APEX: {}", processedEmailIds.size(), processedEmailIds);
             } else {
-                logger.warn("Failed to load processed email IDs. Status: {}", response.getStatusCode());
+                logger.warn("Failed to load processed email IDs. Status: {}, Body: {}", response.getStatusCode(), response.getBody());
             }
         } catch (HttpClientErrorException | HttpServerErrorException e) {
             logger.error("HTTP Error loading processed email IDs: {} - {}", e.getStatusCode(), e.getStatusText());
@@ -215,8 +219,13 @@ public class GmailService {
             this.email = email;
         }
 
-        public String getName() { return name; }
-        public String getEmail() { return email; }
+        public String getName() {
+            return name;
+        }
+
+        public String getEmail() {
+            return email;
+        }
     }
 
     private static class EmailData {
@@ -234,10 +243,24 @@ public class GmailService {
             this.body = body;
         }
 
-        public String getEmail_id() { return email_id; }
-        public String getSender_name() { return sender_name; }
-        public String getSender_email() { return sender_email; }
-        public String getSubject() { return subject; }
-        public String getBody() { return body; }
+        public String getEmail_id() {
+            return email_id;
+        }
+
+        public String getSender_name() {
+            return sender_name;
+        }
+
+        public String getSender_email() {
+            return sender_email;
+        }
+
+        public String getSubject() {
+            return subject;
+        }
+
+        public String getBody() {
+            return body;
+        }
     }
 }
