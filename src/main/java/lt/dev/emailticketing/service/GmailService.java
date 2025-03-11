@@ -35,6 +35,32 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
+
+// DTO to map the APEX response
+class ProcessedEmailsResponse {
+    private List<EmailIdItem> items;
+
+    public List<EmailIdItem> getItems() {
+        return items;
+    }
+
+    public void setItems(List<EmailIdItem> items) {
+        this.items = items;
+    }
+}
+
+class EmailIdItem {
+    private String email_id;
+
+    public String getEmail_id() {
+        return email_id;
+    }
+
+    public void setEmail_id(String email_id) {
+        this.email_id = email_id;
+    }
+}
 
 @Service
 public class GmailService {
@@ -56,6 +82,9 @@ public class GmailService {
 
     @Value("${oauth2.local.server.port:8888}")
     private int oauth2LocalServerPort;
+
+    @Value("${apex.api.key}")
+    private String apexApiKey; // Add this to application.properties
 
     @PostConstruct
     public void init() throws Exception {
@@ -134,6 +163,7 @@ public class GmailService {
     private void sendToApex(String emailId, String senderName, String senderEmail, String subject, String body) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-API-Key", apexApiKey); // Add API key header
 
         EmailData emailData = new EmailData(emailId, senderName, senderEmail, subject, body);
         String json;
@@ -165,22 +195,25 @@ public class GmailService {
         processedEmailIds = new HashSet<>();
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-API-Key", apexApiKey); // Add API key header
         HttpEntity<String> entity = new HttpEntity<>(headers);
 
         try {
             logger.info("Attempting to load processed email IDs from: {}", apexProcessedEmailsEndpoint);
-            ResponseEntity<List<String>> response = restTemplate.exchange(
+            ResponseEntity<ProcessedEmailsResponse> response = restTemplate.exchange(
                     apexProcessedEmailsEndpoint,
                     HttpMethod.GET,
                     entity,
-                    new ParameterizedTypeReference<List<String>>() {}
+                    new ParameterizedTypeReference<ProcessedEmailsResponse>() {}
             );
             if (response.getStatusCode() == HttpStatus.OK) {
-                if (response.getBody() != null) {
-                    processedEmailIds.addAll(response.getBody());
+                if (response.getBody() != null && response.getBody().getItems() != null) {
+                    processedEmailIds.addAll(response.getBody().getItems().stream()
+                            .map(EmailIdItem::getEmail_id)
+                            .collect(Collectors.toList()));
                     logger.info("Loaded {} processed email IDs from APEX: {}", processedEmailIds.size(), processedEmailIds);
                 } else {
-                    logger.warn("Received 200 OK but body is null or empty from {}", apexProcessedEmailsEndpoint);
+                    logger.warn("Received 200 OK but body or items list is null or empty from {}", apexProcessedEmailsEndpoint);
                 }
             } else {
                 logger.warn("Failed to load processed email IDs. Status: {}, Body: {}", response.getStatusCode(), response.getBody());
