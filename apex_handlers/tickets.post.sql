@@ -1,5 +1,10 @@
 DECLARE
-l_email_id tickets.email_id%TYPE;
+-- 1) Check the API key first
+l_provided_key VARCHAR2(200) := owa_util.get_cgi_env('x-api-key');
+    l_expected_key VARCHAR2(200) := '1234-ABCD-5678-EFGH';
+
+    -- 2) Your existing variables
+    l_email_id tickets.email_id%TYPE;
     l_sender_name senders.sender_name%TYPE;
     l_sender_email senders.sender_email%TYPE;
     l_subject tickets.subject%TYPE;
@@ -8,7 +13,16 @@ l_email_id tickets.email_id%TYPE;
     l_raw_body CLOB;
     l_json_parsed BOOLEAN := FALSE;
 BEGIN
-    -- Get the raw request body
+    -- 1a) If the key is missing or doesn’t match, return 401 Unauthorized in JSON
+    IF l_provided_key IS NULL OR l_provided_key <> l_expected_key THEN
+        owa_util.status_line(401, 'Unauthorized');
+        -- Provide a simple JSON error body
+        owa_util.mime_header('application/json', FALSE);
+        htp.print('{"error":"Unauthorized"}');
+        RETURN;  -- Stop processing; do not insert any data
+END IF;
+
+    -- 2) Continue with normal logic if authorized
     l_raw_body := TO_CLOB(:body);
     APEX_DEBUG.INFO('Raw request body length: %d', NVL(DBMS_LOB.GETLENGTH(l_raw_body), 0));
     APEX_DEBUG.INFO('Raw request body: %s', l_raw_body);
@@ -41,7 +55,7 @@ END;
         APEX_DEBUG.INFO('subject: %s', l_subject);
         APEX_DEBUG.INFO('body: %s', l_body);
 
-        -- Get or insert sender
+        -- Upsert sender
 MERGE INTO senders s
     USING (SELECT l_sender_email AS sender_email FROM dual) d
     ON (s.sender_email = d.sender_email)
@@ -51,32 +65,38 @@ MERGE INTO senders s
     WHEN MATCHED THEN
         UPDATE SET update_date = CURRENT_TIMESTAMP;
 
--- Get sender_id for the ticket
+-- Retrieve sender_id
 SELECT sender_id INTO l_sender_id
 FROM senders
 WHERE sender_email = l_sender_email;
 
 -- Insert into tickets
-INSERT INTO tickets (email_id, sender_id, subject, body)
-VALUES (l_email_id, l_sender_id, l_subject, l_body);
+INSERT INTO tickets (email_id, sender_id, subject, body, status, creation_date, update_date)
+VALUES (l_email_id, l_sender_id, l_subject, l_body, 'NEW', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+-- Insert into processed_emails
+BEGIN
+INSERT INTO processed_emails (email_id, creation_date, update_date)
+VALUES (l_email_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+EXCEPTION
+            WHEN DUP_VAL_ON_INDEX THEN
+                APEX_DEBUG.INFO('Email ID %s already processed, skipping duplicate insert', l_email_id);
+WHEN OTHERS THEN
+                APEX_DEBUG.ERROR('Failed to insert into processed_emails: %s', SQLERRM);
+END;
 
 COMMIT;
 
--- Set the Content-Type to application/json
+-- Set JSON response headers
 OWA_UTIL.mime_header('application/json', FALSE);
-
-        -- Write success response
         APEX_JSON.initialize_clob_output;
         APEX_JSON.open_object;
         APEX_JSON.write('status', 'success');
         APEX_JSON.write('message', 'Ticket created successfully');
         APEX_JSON.close_object;
-
 ELSE
-        -- Set the Content-Type to application/json for error response
+        -- If JSON parsing failed
         OWA_UTIL.mime_header('application/json', FALSE);
-
-        -- Write error response
         APEX_JSON.initialize_clob_output;
         APEX_JSON.open_object;
         APEX_JSON.write('status', 'error');
@@ -85,13 +105,17 @@ ELSE
 END IF;
 
 EXCEPTION
-    WHEN OTHERS THEN
+    WHEN DUP_VAL_ON_INDEX THEN
         ROLLBACK;
-
-        -- Set the Content-Type to application/json for exception response
         OWA_UTIL.mime_header('application/json', FALSE);
-
-        -- Write exception response
+        APEX_JSON.initialize_clob_output;
+        APEX_JSON.open_object;
+        APEX_JSON.write('status', 'error');
+        APEX_JSON.write('message', 'Ticket already exists for email_id: ' || l_email_id);
+        APEX_JSON.close_object;
+WHEN OTHERS THEN
+        ROLLBACK;
+        OWA_UTIL.mime_header('application/json', FALSE);
         APEX_JSON.initialize_clob_output;
         APEX_JSON.open_object;
         APEX_JSON.write('status', 'error');

@@ -1,6 +1,5 @@
 package lt.dev.emailticketing.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.api.client.auth.oauth2.Credential;
 import com.google.api.client.extensions.java6.auth.oauth2.AuthorizationCodeInstalledApp;
@@ -37,7 +36,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-// DTO to map the APEX response
 class ProcessedEmailsResponse {
     private List<EmailIdItem> items;
 
@@ -64,9 +62,7 @@ class EmailIdItem {
 
 @Service
 public class GmailService {
-
     private static final Logger logger = LoggerFactory.getLogger(GmailService.class);
-
     private Gmail gmail;
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -84,7 +80,7 @@ public class GmailService {
     private int oauth2LocalServerPort;
 
     @Value("${apex.api.key}")
-    private String apexApiKey; // Add this to application.properties
+    private String apexApiKey;
 
     @PostConstruct
     public void init() throws Exception {
@@ -94,7 +90,7 @@ public class GmailService {
                 loadProcessedEmailIds();
                 if (!processedEmailIds.isEmpty()) {
                     logger.info("Successfully loaded processed email IDs: {}", processedEmailIds);
-                    break; // Success, exit loop
+                    break;
                 }
                 logger.warn("Processed email IDs list is empty, retrying...");
             } catch (Exception e) {
@@ -102,26 +98,26 @@ public class GmailService {
             }
             retries--;
             if (retries > 0) {
-                Thread.sleep(2000); // Wait 2 seconds before retrying
+                Thread.sleep(2000);
             }
         }
         if (processedEmailIds.isEmpty()) {
             logger.warn("Failed to load processed email IDs after 3 retries. Proceeding with empty set, which may cause reprocessing.");
         }
-
         NetHttpTransport httpTransport = GoogleNetHttpTransport.newTrustedTransport();
-        GoogleClientSecrets clientSecrets = GoogleClientSecrets.load(JSON_FACTORY,
-                new InputStreamReader(new ClassPathResource("credentials.json").getInputStream()));
+        GoogleClientSecrets clientSecrets = GoogleClientSecrets.load(
+                JSON_FACTORY,
+                new InputStreamReader(new ClassPathResource("credentials.json").getInputStream())
+        );
         GoogleAuthorizationCodeFlow flow = new GoogleAuthorizationCodeFlow.Builder(
-                httpTransport, JSON_FACTORY, clientSecrets, Collections.singleton("https://www.googleapis.com/auth/gmail.modify"))
+                httpTransport, JSON_FACTORY, clientSecrets, Collections.singleton("https://www.googleapis.com/auth/gmail.modify")
+        )
                 .setDataStoreFactory(new FileDataStoreFactory(new File(TOKENS_DIRECTORY_PATH)))
                 .setAccessType("offline")
                 .build();
         LocalServerReceiver receiver = new LocalServerReceiver.Builder().setPort(oauth2LocalServerPort).build();
         Credential credential = new AuthorizationCodeInstalledApp(flow, receiver).authorize("user");
-        gmail = new Gmail.Builder(httpTransport, JSON_FACTORY, credential)
-                .setApplicationName("EmailTicketing")
-                .build();
+        gmail = new Gmail.Builder(httpTransport, JSON_FACTORY, credential).setApplicationName("EmailTicketing").build();
     }
 
     @Scheduled(fixedRate = 60000)
@@ -142,7 +138,6 @@ public class GmailService {
                             .filter(h -> h.getName().equals("Subject"))
                             .findFirst().map(h -> h.getValue()).orElse("No Subject");
                     String body = extractBody(fullMsg);
-
                     sendToApex(emailId, senderInfo.getName(), senderInfo.getEmail(), subject, body);
                 } else {
                     logger.info("Skipping already processed email with ID: {}", emailId);
@@ -153,7 +148,7 @@ public class GmailService {
         }
     }
 
-    @Scheduled(fixedRate = 3600000) // Run every hour (3600000 ms)
+    @Scheduled(fixedRate = 3600000)
     public void refreshProcessedEmailIds() {
         logger.info("Refreshing processed email IDs to sync with external updates...");
         loadProcessedEmailIds();
@@ -163,8 +158,7 @@ public class GmailService {
     private void sendToApex(String emailId, String senderName, String senderEmail, String subject, String body) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("X-API-Key", apexApiKey); // Add API key header
-
+        headers.set("x-api-key", apexApiKey);
         EmailData emailData = new EmailData(emailId, senderName, senderEmail, subject, body);
         String json;
         try {
@@ -174,13 +168,12 @@ public class GmailService {
             logger.error("Failed to serialize email data to JSON", e);
             throw new RuntimeException("Failed to serialize email data to JSON", e);
         }
-
         HttpEntity<String> entity = new HttpEntity<>(json, headers);
         try {
             ResponseEntity<String> response = restTemplate.postForEntity(apexTicketsEndpoint, entity, String.class);
             logger.info("APEX Response Status: {}", response.getStatusCode());
             logger.info("APEX Response Body: {}", response.getBody() != null ? response.getBody() : "Empty");
-            processedEmailIds.add(emailId); // Add to in-memory set after successful POST
+            processedEmailIds.add(emailId);
         } catch (HttpClientErrorException | HttpServerErrorException e) {
             logger.error("HTTP Error from APEX: {} - {}", e.getStatusCode(), e.getStatusText());
             logger.error("Response Body: {}", e.getResponseBodyAsString() != null ? e.getResponseBodyAsString() : "Empty");
@@ -195,9 +188,8 @@ public class GmailService {
         processedEmailIds = new HashSet<>();
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("X-API-Key", apexApiKey); // Add API key header
+        headers.set("x-api-key", apexApiKey);
         HttpEntity<String> entity = new HttpEntity<>(headers);
-
         try {
             logger.info("Attempting to load processed email IDs from: {}", apexProcessedEmailsEndpoint);
             ResponseEntity<ProcessedEmailsResponse> response = restTemplate.exchange(
@@ -221,10 +213,10 @@ public class GmailService {
         } catch (HttpClientErrorException | HttpServerErrorException e) {
             logger.error("HTTP Error loading processed email IDs: {} - {}", e.getStatusCode(), e.getStatusText());
             logger.error("Response Body: {}", e.getResponseBodyAsString() != null ? e.getResponseBodyAsString() : "Empty");
-            throw e; // Re-throw to trigger retry in init()
+            throw e;
         } catch (Exception e) {
             logger.error("Failed to load processed email IDs: {}", e.getMessage(), e);
-            throw new RuntimeException("Unexpected error loading processed email IDs", e); // Re-throw to trigger retry
+            throw new RuntimeException("Unexpected error loading processed email IDs", e);
         }
     }
 
