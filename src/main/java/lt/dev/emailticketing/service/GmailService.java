@@ -30,7 +30,6 @@ import org.springframework.web.client.RestTemplate;
 import javax.annotation.PostConstruct;
 import java.io.File;
 import java.io.InputStreamReader;
-import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashSet;
@@ -49,9 +48,6 @@ public class GmailService {
     private static final String TOKENS_DIRECTORY_PATH = "tokens";
     private Set<String> processedEmailIds;
 
-    @Value("${apex.root.endpoint}")
-    private String apexRootEndpoint;
-
     @Value("${apex.tickets.endpoint}")
     private String apexTicketsEndpoint;
 
@@ -63,29 +59,7 @@ public class GmailService {
 
     @PostConstruct
     public void init() throws Exception {
-        int retries = 3;
-        while (retries > 0) {
-            try {
-                loadProcessedEmailIds();
-                if (!processedEmailIds.isEmpty()) {
-                    logger.info("Successfully loaded processed email IDs: {}", processedEmailIds);
-                    break; // Success, exit loop
-                }
-                logger.warn("Processed email IDs list is empty, retrying...");
-            } catch (Exception e) {
-                logger.error("Failed to load processed email IDs: {}", e.getMessage(), e);
-            }
-            retries--;
-            if (retries > 0) {
-                Thread.sleep(2000); // Wait 2 seconds before retrying
-            }
-        }
-        if (processedEmailIds.isEmpty()) {
-            logger.warn("Failed to load processed email IDs after {} retries. Proceeding with empty set, which may cause reprocessing.", 3);
-            // Optional: Initialize with known IDs as a fallback (remove after endpoint is stable)
-            // processedEmailIds = new HashSet<>(Arrays.asList("1957a68e2d4573a1", "19581d061f3f247f", "1957a3be563d840e"));
-        }
-
+        loadProcessedEmailIds();
         NetHttpTransport httpTransport = GoogleNetHttpTransport.newTrustedTransport();
         GoogleClientSecrets clientSecrets = GoogleClientSecrets.load(JSON_FACTORY,
                 new InputStreamReader(new ClassPathResource("credentials.json").getInputStream()));
@@ -186,14 +160,6 @@ public class GmailService {
         } catch (Exception e) {
             logger.error("Failed to load processed email IDs: {}", e.getMessage(), e);
         }
-    }
-
-
-    @Scheduled(fixedRate = 3600000) // Run every hour (3600000 ms)
-    public void refreshProcessedEmailIds() {
-        logger.info("Refreshing processed email IDs...");
-        loadProcessedEmailIds();
-        logger.info("Refreshed processed email IDs: {}", processedEmailIds);
     }
 
     private SenderInfo extractSenderInfo(String fromHeader) {
