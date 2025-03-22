@@ -9,9 +9,10 @@ be moved~~
 
    b. look in the task
 4. BE deployment
-5. Schedule scan does not work
+5. ~~Schedule scan does not work~~
 6. Apex page with reply form
 7. Apex page for observing tickets
 8. Apex page for observing replies
 9. Add link to replies for Apex tickets page
 10. ~~Add authorization for requests~~
+11. Gmail scan is incorrect. Currently top is first. Last email by order (first by time) should be first (lowest possible id in database)

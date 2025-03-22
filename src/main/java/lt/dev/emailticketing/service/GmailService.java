@@ -2,6 +2,7 @@ package lt.dev.emailticketing.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.api.client.auth.oauth2.Credential;
+import com.google.api.client.auth.oauth2.TokenResponseException;
 import com.google.api.client.extensions.java6.auth.oauth2.AuthorizationCodeInstalledApp;
 import com.google.api.client.extensions.jetty.auth.oauth2.LocalServerReceiver;
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow;
@@ -14,6 +15,7 @@ import com.google.api.client.util.store.FileDataStoreFactory;
 import com.google.api.services.gmail.Gmail;
 import com.google.api.services.gmail.model.Message;
 import com.google.api.services.gmail.model.MessagePart;
+import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,11 +31,7 @@ import org.springframework.web.client.RestTemplate;
 import javax.annotation.PostConstruct;
 import java.io.File;
 import java.io.InputStreamReader;
-import java.util.Base64;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 class ProcessedEmailsResponse {
@@ -63,11 +61,13 @@ class EmailIdItem {
 @Service
 public class GmailService {
     private static final Logger logger = LoggerFactory.getLogger(GmailService.class);
-    private Gmail gmail;
-    private final RestTemplate restTemplate = new RestTemplate();
-    private final ObjectMapper objectMapper = new ObjectMapper();
     private static final JsonFactory JSON_FACTORY = JacksonFactory.getDefaultInstance();
     private static final String TOKENS_DIRECTORY_PATH = "tokens";
+
+    private Gmail gmail;
+    private Credential credential;
+    private final RestTemplate restTemplate = new RestTemplate();
+    private final ObjectMapper objectMapper = new ObjectMapper();
     private Set<String> processedEmailIds;
 
     @Value("${apex.tickets.endpoint}")
@@ -84,27 +84,16 @@ public class GmailService {
 
     @PostConstruct
     public void init() throws Exception {
-        int retries = 3;
-        while (retries > 0) {
-            try {
-                loadProcessedEmailIds();
-                if (!processedEmailIds.isEmpty()) {
-                    logger.info("Successfully loaded processed email IDs: {}", processedEmailIds);
-                    break;
-                }
-                logger.warn("Processed email IDs list is empty, retrying...");
-            } catch (Exception e) {
-                logger.error("Failed to load processed email IDs: {}", e.getMessage(), e);
-            }
-            retries--;
-            if (retries > 0) {
-                Thread.sleep(2000);
-            }
-        }
-        if (processedEmailIds.isEmpty()) {
-            logger.warn("Failed to load processed email IDs after 3 retries. Proceeding with empty set, which may cause reprocessing.");
-        }
+        loadProcessedEmailIdsWithRetries();
+
         NetHttpTransport httpTransport = GoogleNetHttpTransport.newTrustedTransport();
+        credential = authorize(httpTransport);
+        gmail = new Gmail.Builder(httpTransport, JSON_FACTORY, credential)
+                .setApplicationName("EmailTicketing")
+                .build();
+    }
+
+    private Credential authorize(NetHttpTransport httpTransport) throws Exception {
         GoogleClientSecrets clientSecrets = GoogleClientSecrets.load(
                 JSON_FACTORY,
                 new InputStreamReader(new ClassPathResource("credentials.json").getInputStream())
@@ -115,36 +104,60 @@ public class GmailService {
                 .setDataStoreFactory(new FileDataStoreFactory(new File(TOKENS_DIRECTORY_PATH)))
                 .setAccessType("offline")
                 .build();
-        LocalServerReceiver receiver = new LocalServerReceiver.Builder().setPort(oauth2LocalServerPort).build();
-        Credential credential = new AuthorizationCodeInstalledApp(flow, receiver).authorize("user");
-        gmail = new Gmail.Builder(httpTransport, JSON_FACTORY, credential).setApplicationName("EmailTicketing").build();
+
+        LocalServerReceiver receiver = new LocalServerReceiver.Builder()
+                .setPort(oauth2LocalServerPort)
+                .build();
+
+        return new AuthorizationCodeInstalledApp(flow, receiver).authorize("user");
     }
 
     @Scheduled(fixedRate = 60000)
     public void scanInbox() throws Exception {
         logger.info("Scanning Gmail inbox for new messages...");
-        List<Message> messages = gmail.users().messages().list("me").setQ("in:inbox").execute().getMessages();
-        if (messages != null) {
-            for (Message msg : messages) {
-                String emailId = msg.getId();
-                if (!processedEmailIds.contains(emailId)) {
-                    logger.info("Processing new email with ID: {}", emailId);
-                    Message fullMsg = gmail.users().messages().get("me", emailId).execute();
-                    String fromHeader = fullMsg.getPayload().getHeaders().stream()
-                            .filter(h -> h.getName().equals("From"))
-                            .findFirst().map(h -> h.getValue()).orElse("Unknown");
-                    SenderInfo senderInfo = extractSenderInfo(fromHeader);
-                    String subject = fullMsg.getPayload().getHeaders().stream()
-                            .filter(h -> h.getName().equals("Subject"))
-                            .findFirst().map(h -> h.getValue()).orElse("No Subject");
-                    String body = extractBody(fullMsg);
-                    sendToApex(emailId, senderInfo.getName(), senderInfo.getEmail(), subject, body);
-                } else {
-                    logger.info("Skipping already processed email with ID: {}", emailId);
+        try {
+            List<Message> messages = gmail.users().messages().list("me")
+                    .setQ("in:inbox")
+                    .setMaxResults(100L) // Optional: limit emails to avoid too many
+                    .execute().getMessages();
+
+            if (messages != null) {
+                Collections.reverse(messages);
+
+                for (Message msg : messages) {
+                    String emailId = msg.getId();
+                    if (!processedEmailIds.contains(emailId)) {
+                        logger.info("Processing new email with ID: {}", emailId);
+                        Message fullMsg = gmail.users().messages().get("me", emailId).execute();
+                        String fromHeader = fullMsg.getPayload().getHeaders().stream()
+                                .filter(h -> h.getName().equals("From"))
+                                .findFirst().map(h -> h.getValue()).orElse("Unknown");
+                        SenderInfo senderInfo = extractSenderInfo(fromHeader);
+                        String subject = fullMsg.getPayload().getHeaders().stream()
+                                .filter(h -> h.getName().equals("Subject"))
+                                .findFirst().map(h -> h.getValue()).orElse("No Subject");
+                        String body = extractBody(fullMsg);
+                        sendToApex(emailId, senderInfo.getName(), senderInfo.getEmail(), subject, body);
+                    } else {
+                        logger.info("Skipping already processed email with ID: {}", emailId);
+                    }
                 }
+            } else {
+                logger.info("No new messages found in inbox.");
             }
-        } else {
-            logger.info("No new messages found in inbox.");
+        } catch (TokenResponseException e) {
+            if (e.getDetails() != null && "invalid_grant".equals(e.getDetails().getError())) {
+                logger.warn("OAuth token expired or revoked. Reauthorizing...");
+                clearStoredToken();
+                NetHttpTransport httpTransport = GoogleNetHttpTransport.newTrustedTransport();
+                credential = authorize(httpTransport);
+                gmail = new Gmail.Builder(httpTransport, JSON_FACTORY, credential)
+                        .setApplicationName("EmailTicketing")
+                        .build();
+                logger.info("Reauthorization successful. Will retry inbox scan on next scheduled run.");
+            } else {
+                throw e;
+            }
         }
     }
 
@@ -184,8 +197,29 @@ public class GmailService {
         }
     }
 
-    private void loadProcessedEmailIds() {
+    private void loadProcessedEmailIdsWithRetries() throws InterruptedException {
+        int retries = 3;
         processedEmailIds = new HashSet<>();
+        while (retries > 0) {
+            try {
+                loadProcessedEmailIds();
+                if (!processedEmailIds.isEmpty()) {
+                    logger.info("Successfully loaded processed email IDs: {}", processedEmailIds);
+                    return;
+                }
+                logger.warn("Processed email IDs list is empty, retrying...");
+            } catch (Exception e) {
+                logger.error("Failed to load processed email IDs: {}", e.getMessage(), e);
+            }
+            retries--;
+            if (retries > 0) {
+                Thread.sleep(2000);
+            }
+        }
+        logger.warn("Failed to load processed email IDs after 3 retries. Proceeding with empty set, which may cause reprocessing.");
+    }
+
+    private void loadProcessedEmailIds() {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("x-api-key", apexApiKey);
@@ -198,17 +232,13 @@ public class GmailService {
                     entity,
                     new ParameterizedTypeReference<ProcessedEmailsResponse>() {}
             );
-            if (response.getStatusCode() == HttpStatus.OK) {
-                if (response.getBody() != null && response.getBody().getItems() != null) {
-                    processedEmailIds.addAll(response.getBody().getItems().stream()
-                            .map(EmailIdItem::getEmail_id)
-                            .collect(Collectors.toList()));
-                    logger.info("Loaded {} processed email IDs from APEX: {}", processedEmailIds.size(), processedEmailIds);
-                } else {
-                    logger.warn("Received 200 OK but body or items list is null or empty from {}", apexProcessedEmailsEndpoint);
-                }
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null && response.getBody().getItems() != null) {
+                processedEmailIds.addAll(response.getBody().getItems().stream()
+                        .map(EmailIdItem::getEmail_id)
+                        .collect(Collectors.toList()));
+                logger.info("Loaded {} processed email IDs from APEX: {}", processedEmailIds.size(), processedEmailIds);
             } else {
-                logger.warn("Failed to load processed email IDs. Status: {}, Body: {}", response.getStatusCode(), response.getBody());
+                logger.warn("Received 200 OK but body or items list is null or empty from {}", apexProcessedEmailsEndpoint);
             }
         } catch (HttpClientErrorException | HttpServerErrorException e) {
             logger.error("HTTP Error loading processed email IDs: {} - {}", e.getStatusCode(), e.getStatusText());
@@ -217,6 +247,19 @@ public class GmailService {
         } catch (Exception e) {
             logger.error("Failed to load processed email IDs: {}", e.getMessage(), e);
             throw new RuntimeException("Unexpected error loading processed email IDs", e);
+        }
+    }
+
+    private void clearStoredToken() {
+        try {
+            File tokenFile = new File(TOKENS_DIRECTORY_PATH + "/StoredCredential");
+            if (tokenFile.exists() && tokenFile.delete()) {
+                logger.info("Deleted expired stored token.");
+            } else {
+                logger.warn("Failed to delete stored token.");
+            }
+        } catch (Exception e) {
+            logger.error("Failed to delete stored token: {}", e.getMessage(), e);
         }
     }
 
@@ -250,17 +293,44 @@ public class GmailService {
                 }
             }
         }
-        return !body.isEmpty() ? body.toString() : message.getSnippet();
+
+        // Gmail line-wrap fix: combine lines into paragraphs
+        return normalizeParagraphs(body.toString());
     }
+
+    private String normalizeParagraphs(String text) {
+        String[] lines = text.split("\r?\n");
+
+        StringBuilder normalized = new StringBuilder();
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+
+            // If it's an empty line, treat it as a paragraph break
+            if (line.isEmpty()) {
+                normalized.append("\n\n");
+                continue;
+            }
+
+            normalized.append(line);
+
+            // Check next line to decide whether to add space or newline
+            if (i + 1 < lines.length) {
+                String nextLine = lines[i + 1].trim();
+                if (!nextLine.isEmpty()) {
+                    normalized.append(" ");
+                }
+            }
+        }
+        return normalized.toString();
+    }
+
 
     private String decodeBase64(String encodedData) {
         if (encodedData == null) return "";
         try {
             String standardBase64 = encodedData.replace('-', '+').replace('_', '/');
             int padding = (4 - standardBase64.length() % 4) % 4;
-            for (int i = 0; i < padding; i++) {
-                standardBase64 += "=";
-            }
+            standardBase64 += "=".repeat(padding);
             return new String(Base64.getDecoder().decode(standardBase64));
         } catch (IllegalArgumentException e) {
             logger.error("Failed to decode Base64 data: {}", encodedData, e);
@@ -268,6 +338,7 @@ public class GmailService {
         }
     }
 
+    @Getter
     private static class SenderInfo {
         private final String name;
         private final String email;
@@ -277,15 +348,9 @@ public class GmailService {
             this.email = email;
         }
 
-        public String getName() {
-            return name;
-        }
-
-        public String getEmail() {
-            return email;
-        }
     }
 
+    @Getter
     private static class EmailData {
         private final String email_id;
         private final String sender_name;
@@ -301,24 +366,5 @@ public class GmailService {
             this.body = body;
         }
 
-        public String getEmail_id() {
-            return email_id;
-        }
-
-        public String getSender_name() {
-            return sender_name;
-        }
-
-        public String getSender_email() {
-            return sender_email;
-        }
-
-        public String getSubject() {
-            return subject;
-        }
-
-        public String getBody() {
-            return body;
-        }
     }
 }
