@@ -15,3 +15,4 @@ be moved~~
 8. Apex page for observing replies
 9. Add link to replies for Apex tickets page
 10. ~~Add authorization for requests~~
+11. Gmail scan is incorrect. Currently top is first. Last email by order (first by time) should be first (lowest possible id in database)
