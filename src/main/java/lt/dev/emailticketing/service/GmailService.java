@@ -116,8 +116,14 @@ public class GmailService {
     public void scanInbox() throws Exception {
         logger.info("Scanning Gmail inbox for new messages...");
         try {
-            List<Message> messages = gmail.users().messages().list("me").setQ("in:inbox").execute().getMessages();
+            List<Message> messages = gmail.users().messages().list("me")
+                    .setQ("in:inbox")
+                    .setMaxResults(100L) // Optional: limit emails to avoid too many
+                    .execute().getMessages();
+
             if (messages != null) {
+                Collections.reverse(messages);
+
                 for (Message msg : messages) {
                     String emailId = msg.getId();
                     if (!processedEmailIds.contains(emailId)) {
