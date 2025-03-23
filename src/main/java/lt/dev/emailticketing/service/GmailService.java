@@ -16,6 +16,7 @@ import com.google.api.services.gmail.Gmail;
 import com.google.api.services.gmail.model.Message;
 import com.google.api.services.gmail.model.MessagePart;
 import lombok.Getter;
+import lombok.Setter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -34,28 +35,17 @@ import java.io.InputStreamReader;
 import java.util.*;
 import java.util.stream.Collectors;
 
+@Setter
+@Getter
 class ProcessedEmailsResponse {
     private List<EmailIdItem> items;
 
-    public List<EmailIdItem> getItems() {
-        return items;
-    }
-
-    public void setItems(List<EmailIdItem> items) {
-        this.items = items;
-    }
 }
 
+@Setter
+@Getter
 class EmailIdItem {
     private String email_id;
-
-    public String getEmail_id() {
-        return email_id;
-    }
-
-    public void setEmail_id(String email_id) {
-        this.email_id = email_id;
-    }
 }
 
 @Service
