@@ -15,6 +15,7 @@ import com.google.api.client.util.store.FileDataStoreFactory;
 import com.google.api.services.gmail.Gmail;
 import com.google.api.services.gmail.model.Message;
 import com.google.api.services.gmail.model.MessagePart;
+import com.google.api.services.gmail.model.MessagePartHeader;
 import lombok.Getter;
 import lombok.Setter;
 import org.slf4j.Logger;
@@ -39,7 +40,6 @@ import java.util.stream.Collectors;
 @Getter
 class ProcessedEmailsResponse {
     private List<EmailIdItem> items;
-
 }
 
 @Setter
@@ -121,11 +121,11 @@ public class GmailService {
                         Message fullMsg = gmail.users().messages().get("me", emailId).execute();
                         String fromHeader = fullMsg.getPayload().getHeaders().stream()
                                 .filter(h -> h.getName().equals("From"))
-                                .findFirst().map(h -> h.getValue()).orElse("Unknown");
+                                .findFirst().map(MessagePartHeader::getValue).orElse("Unknown");
                         SenderInfo senderInfo = extractSenderInfo(fromHeader);
                         String subject = fullMsg.getPayload().getHeaders().stream()
                                 .filter(h -> h.getName().equals("Subject"))
-                                .findFirst().map(h -> h.getValue()).orElse("No Subject");
+                                .findFirst().map(MessagePartHeader::getValue).orElse("No Subject");
                         String body = extractBody(fullMsg);
                         sendToApex(emailId, senderInfo.getName(), senderInfo.getEmail(), subject, body);
                     } else {
@@ -220,12 +220,13 @@ public class GmailService {
                     apexProcessedEmailsEndpoint,
                     HttpMethod.GET,
                     entity,
-                    new ParameterizedTypeReference<ProcessedEmailsResponse>() {}
+                    new ParameterizedTypeReference<>() {
+                    }
             );
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null && response.getBody().getItems() != null) {
                 processedEmailIds.addAll(response.getBody().getItems().stream()
                         .map(EmailIdItem::getEmail_id)
-                        .collect(Collectors.toList()));
+                        .toList());
                 logger.info("Loaded {} processed email IDs from APEX: {}", processedEmailIds.size(), processedEmailIds);
             } else {
                 logger.warn("Received 200 OK but body or items list is null or empty from {}", apexProcessedEmailsEndpoint);
@@ -337,7 +338,6 @@ public class GmailService {
             this.name = name;
             this.email = email;
         }
-
     }
 
     @Getter
@@ -355,6 +355,5 @@ public class GmailService {
             this.subject = subject;
             this.body = body;
         }
-
     }
 }
