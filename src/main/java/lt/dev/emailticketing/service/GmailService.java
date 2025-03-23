@@ -18,6 +18,10 @@ import com.google.api.services.gmail.model.MessagePart;
 import com.google.api.services.gmail.model.MessagePartHeader;
 import lombok.Getter;
 import lombok.Setter;
+import lt.dev.emailticketing.dto.EmailRequestDto;
+import lt.dev.emailticketing.dto.ProcessedEmailsResponseDto;
+import lt.dev.emailticketing.dto.ProcessedEmailIdDto;
+import lt.dev.emailticketing.internal.SenderInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -34,19 +38,6 @@ import javax.annotation.PostConstruct;
 import java.io.File;
 import java.io.InputStreamReader;
 import java.util.*;
-import java.util.stream.Collectors;
-
-@Setter
-@Getter
-class ProcessedEmailsResponse {
-    private List<EmailIdItem> items;
-}
-
-@Setter
-@Getter
-class EmailIdItem {
-    private String email_id;
-}
 
 @Service
 public class GmailService {
@@ -162,7 +153,7 @@ public class GmailService {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("x-api-key", apexApiKey);
-        EmailData emailData = new EmailData(emailId, senderName, senderEmail, subject, body);
+        EmailRequestDto emailData = new EmailRequestDto(emailId, senderName, senderEmail, subject, body);
         String json;
         try {
             json = objectMapper.writeValueAsString(emailData);
@@ -216,7 +207,7 @@ public class GmailService {
         HttpEntity<String> entity = new HttpEntity<>(headers);
         try {
             logger.info("Attempting to load processed email IDs from: {}", apexProcessedEmailsEndpoint);
-            ResponseEntity<ProcessedEmailsResponse> response = restTemplate.exchange(
+            ResponseEntity<ProcessedEmailsResponseDto> response = restTemplate.exchange(
                     apexProcessedEmailsEndpoint,
                     HttpMethod.GET,
                     entity,
@@ -225,7 +216,7 @@ public class GmailService {
             );
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null && response.getBody().getItems() != null) {
                 processedEmailIds.addAll(response.getBody().getItems().stream()
-                        .map(EmailIdItem::getEmail_id)
+                        .map(ProcessedEmailIdDto::getEmailId)
                         .toList());
                 logger.info("Loaded {} processed email IDs from APEX: {}", processedEmailIds.size(), processedEmailIds);
             } else {
@@ -326,34 +317,6 @@ public class GmailService {
         } catch (IllegalArgumentException e) {
             logger.error("Failed to decode Base64 data: {}", encodedData, e);
             return "";
-        }
-    }
-
-    @Getter
-    private static class SenderInfo {
-        private final String name;
-        private final String email;
-
-        public SenderInfo(String name, String email) {
-            this.name = name;
-            this.email = email;
-        }
-    }
-
-    @Getter
-    private static class EmailData {
-        private final String email_id;
-        private final String sender_name;
-        private final String sender_email;
-        private final String subject;
-        private final String body;
-
-        public EmailData(String email_id, String sender_name, String sender_email, String subject, String body) {
-            this.email_id = email_id;
-            this.sender_name = sender_name;
-            this.sender_email = sender_email;
-            this.subject = subject;
-            this.body = body;
         }
     }
 }
