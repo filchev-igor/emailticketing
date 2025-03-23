@@ -16,12 +16,11 @@ import com.google.api.services.gmail.Gmail;
 import com.google.api.services.gmail.model.Message;
 import com.google.api.services.gmail.model.MessagePart;
 import com.google.api.services.gmail.model.MessagePartHeader;
-import lombok.Getter;
-import lombok.Setter;
 import lt.dev.emailticketing.dto.EmailRequestDto;
 import lt.dev.emailticketing.dto.ProcessedEmailsResponseDto;
 import lt.dev.emailticketing.dto.ProcessedEmailIdDto;
 import lt.dev.emailticketing.internal.SenderInfo;
+import static lt.dev.emailticketing.util.GmailUtils.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -278,45 +277,5 @@ public class GmailService {
 
         // Gmail line-wrap fix: combine lines into paragraphs
         return normalizeParagraphs(body.toString());
-    }
-
-    private String normalizeParagraphs(String text) {
-        String[] lines = text.split("\r?\n");
-
-        StringBuilder normalized = new StringBuilder();
-        for (int i = 0; i < lines.length; i++) {
-            String line = lines[i].trim();
-
-            // If it's an empty line, treat it as a paragraph break
-            if (line.isEmpty()) {
-                normalized.append("\n\n");
-                continue;
-            }
-
-            normalized.append(line);
-
-            // Check next line to decide whether to add space or newline
-            if (i + 1 < lines.length) {
-                String nextLine = lines[i + 1].trim();
-                if (!nextLine.isEmpty()) {
-                    normalized.append(" ");
-                }
-            }
-        }
-        return normalized.toString();
-    }
-
-
-    private String decodeBase64(String encodedData) {
-        if (encodedData == null) return "";
-        try {
-            String standardBase64 = encodedData.replace('-', '+').replace('_', '/');
-            int padding = (4 - standardBase64.length() % 4) % 4;
-            standardBase64 += "=".repeat(padding);
-            return new String(Base64.getDecoder().decode(standardBase64));
-        } catch (IllegalArgumentException e) {
-            logger.error("Failed to decode Base64 data: {}", encodedData, e);
-            return "";
-        }
     }
 }
