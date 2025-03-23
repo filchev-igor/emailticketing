@@ -42,7 +42,6 @@ import java.util.*;
 public class GmailService {
     private static final Logger logger = LoggerFactory.getLogger(GmailService.class);
     private static final JsonFactory JSON_FACTORY = JacksonFactory.getDefaultInstance();
-    private static final String TOKENS_DIRECTORY_PATH = "tokens";
 
     private Gmail gmail;
     private Credential credential;
@@ -61,6 +60,22 @@ public class GmailService {
 
     @Value("${apex.api.key}")
     private String apexApiKey;
+
+    @Value("${gmail.user.id}")
+    private String gmailUserId;
+
+    @Value("${gmail.query}")
+    private String gmailQuery;
+
+    @Value("${gmail.max-results}")
+    private long maxResults;
+
+    @Value("${gmail.token.path}")
+    private String tokenPath;
+
+    @Value("${gmail.oauth.user}")
+    private String oauthUser;
+
 
     @PostConstruct
     public void init() throws Exception {
@@ -81,7 +96,7 @@ public class GmailService {
         GoogleAuthorizationCodeFlow flow = new GoogleAuthorizationCodeFlow.Builder(
                 httpTransport, JSON_FACTORY, clientSecrets, Collections.singleton("https://www.googleapis.com/auth/gmail.modify")
         )
-                .setDataStoreFactory(new FileDataStoreFactory(new File(TOKENS_DIRECTORY_PATH)))
+                .setDataStoreFactory(new FileDataStoreFactory(new File(tokenPath)))
                 .setAccessType("offline")
                 .build();
 
@@ -89,16 +104,16 @@ public class GmailService {
                 .setPort(oauth2LocalServerPort)
                 .build();
 
-        return new AuthorizationCodeInstalledApp(flow, receiver).authorize("user");
+        return new AuthorizationCodeInstalledApp(flow, receiver).authorize(oauthUser);
     }
 
     @Scheduled(fixedRate = 60000)
     public void scanInbox() throws Exception {
         logger.info("Scanning Gmail inbox for new messages...");
         try {
-            List<Message> messages = gmail.users().messages().list("me")
-                    .setQ("in:inbox")
-                    .setMaxResults(100L) // Optional: limit emails to avoid too many
+            List<Message> messages = gmail.users().messages().list(gmailUserId)
+                    .setQ(gmailQuery)
+                    .setMaxResults(maxResults)
                     .execute().getMessages();
 
             if (messages != null) {
@@ -108,7 +123,7 @@ public class GmailService {
                     String emailId = msg.getId();
                     if (!processedEmailIds.contains(emailId)) {
                         logger.info("Processing new email with ID: {}", emailId);
-                        Message fullMsg = gmail.users().messages().get("me", emailId).execute();
+                        Message fullMsg = gmail.users().messages().get(gmailUserId, emailId).execute();
                         String fromHeader = fullMsg.getPayload().getHeaders().stream()
                                 .filter(h -> h.getName().equals("From"))
                                 .findFirst().map(MessagePartHeader::getValue).orElse("Unknown");
@@ -233,7 +248,7 @@ public class GmailService {
 
     private void clearStoredToken() {
         try {
-            File tokenFile = new File(TOKENS_DIRECTORY_PATH + "/StoredCredential");
+            File tokenFile = new File(tokenPath + "/StoredCredential");
             if (tokenFile.exists() && tokenFile.delete()) {
                 logger.info("Deleted expired stored token.");
             } else {
