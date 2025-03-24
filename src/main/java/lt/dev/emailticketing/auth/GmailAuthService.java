@@ -53,7 +53,7 @@ public class GmailAuthService {
                 .setPort(oauth2LocalServerPort)
                 .build();
 
-        logger.info("Starting Gmail OAuth2 flow...");
+        logger.debug("Starting Gmail OAuth2 flow...");
         Credential credential = new AuthorizationCodeInstalledApp(flow, receiver).authorize(oauthUser);
         logger.info("OAuth2 authorization successful.");
         return credential;

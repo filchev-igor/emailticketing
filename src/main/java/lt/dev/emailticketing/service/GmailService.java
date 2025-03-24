@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.api.client.auth.oauth2.Credential;
 import com.google.api.client.auth.oauth2.TokenResponseException;
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
-import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.JsonFactory;
 import com.google.api.client.json.jackson2.JacksonFactory;
 import com.google.api.services.gmail.Gmail;
@@ -17,6 +16,7 @@ import lt.dev.emailticketing.dto.ProcessedEmailsResponseDto;
 import lt.dev.emailticketing.dto.ProcessedEmailIdDto;
 import lt.dev.emailticketing.internal.SenderInfo;
 import static lt.dev.emailticketing.util.GmailUtils.*;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,11 +38,10 @@ public class GmailService {
 
     private Gmail gmail;
     private Credential credential;
+    private final GmailAuthService gmailAuthService;
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private Set<String> processedEmailIds;
-
-    private final GmailAuthService gmailAuthService;
 
     @Value("${apex.tickets.endpoint}")
     private String apexTicketsEndpoint;
@@ -62,15 +61,15 @@ public class GmailService {
     @Value("${gmail.max-results}")
     private long maxResults;
 
+    public GmailService(GmailAuthService gmailAuthService) {
+        this.gmailAuthService = gmailAuthService;
+    }
+
     @PostConstruct
     public void init() throws Exception {
         loadProcessedEmailIdsWithRetries();
-
-        NetHttpTransport httpTransport = GoogleNetHttpTransport.newTrustedTransport();
-
         credential = gmailAuthService.authorize();
-
-        gmail = new Gmail.Builder(httpTransport, JSON_FACTORY, credential)
+        gmail = new Gmail.Builder(GoogleNetHttpTransport.newTrustedTransport(), JSON_FACTORY, credential)
                 .setApplicationName("EmailTicketing")
                 .build();
     }
@@ -90,7 +89,7 @@ public class GmailService {
                 for (Message msg : messages) {
                     String emailId = msg.getId();
                     if (!processedEmailIds.contains(emailId)) {
-                        logger.info("Processing new email with ID: {}", emailId);
+                        logger.debug("Processing new email with ID: {}", emailId);
                         Message fullMsg = gmail.users().messages().get(gmailUserId, emailId).execute();
                         String fromHeader = fullMsg.getPayload().getHeaders().stream()
                                 .filter(h -> h.getName().equals("From"))
@@ -102,7 +101,7 @@ public class GmailService {
                         String body = extractBody(fullMsg);
                         sendToApex(emailId, senderInfo.getName(), senderInfo.getEmail(), subject, body);
                     } else {
-                        logger.info("Skipping already processed email with ID: {}", emailId);
+                        logger.debug("Skipping already processed email with ID: {}", emailId);
                     }
                 }
             } else {
@@ -112,17 +111,13 @@ public class GmailService {
             if (e.getDetails() != null && "invalid_grant".equals(e.getDetails().getError())) {
                 logger.warn("OAuth token expired or revoked. Reauthorizing...");
 
-                NetHttpTransport httpTransport = GoogleNetHttpTransport.newTrustedTransport();
-
                 boolean cleared = gmailAuthService.clearStoredToken();
-
                 if (!cleared) {
                     logger.warn("Could not delete stored token. Proceeding anyway.");
                 }
 
                 credential = gmailAuthService.authorize();
-
-                gmail = new Gmail.Builder(httpTransport, JSON_FACTORY, credential)
+                gmail = new Gmail.Builder(GoogleNetHttpTransport.newTrustedTransport(), JSON_FACTORY, credential)
                         .setApplicationName("EmailTicketing")
                         .build();
                 logger.info("Reauthorization successful. Will retry inbox scan on next scheduled run.");
@@ -147,7 +142,7 @@ public class GmailService {
         String json;
         try {
             json = objectMapper.writeValueAsString(emailData);
-            logger.info("Sending JSON to APEX: {}", json);
+            logger.debug("Sending JSON to APEX: {}", json);
         } catch (Exception e) {
             logger.error("Failed to serialize email data to JSON", e);
             throw new RuntimeException("Failed to serialize email data to JSON", e);
@@ -156,7 +151,7 @@ public class GmailService {
         try {
             ResponseEntity<String> response = restTemplate.postForEntity(apexTicketsEndpoint, entity, String.class);
             logger.info("APEX Response Status: {}", response.getStatusCode());
-            logger.info("APEX Response Body: {}", response.getBody() != null ? response.getBody() : "Empty");
+            logger.debug("APEX Response Body: {}", response.getBody() != null ? response.getBody() : "Empty");
             processedEmailIds.add(emailId);
         } catch (HttpClientErrorException | HttpServerErrorException e) {
             logger.error("HTTP Error from APEX: {} - {}", e.getStatusCode(), e.getStatusText());
@@ -175,7 +170,7 @@ public class GmailService {
             try {
                 loadProcessedEmailIds();
                 if (!processedEmailIds.isEmpty()) {
-                    logger.info("Successfully loaded processed email IDs: {}", processedEmailIds);
+                    logger.debug("Successfully loaded processed email IDs: {}", processedEmailIds);
                     return;
                 }
                 logger.warn("Processed email IDs list is empty, retrying...");
@@ -196,19 +191,18 @@ public class GmailService {
         headers.set("x-api-key", apexApiKey);
         HttpEntity<String> entity = new HttpEntity<>(headers);
         try {
-            logger.info("Attempting to load processed email IDs from: {}", apexProcessedEmailsEndpoint);
+            logger.debug("Attempting to load processed email IDs from: {}", apexProcessedEmailsEndpoint);
             ResponseEntity<ProcessedEmailsResponseDto> response = restTemplate.exchange(
                     apexProcessedEmailsEndpoint,
                     HttpMethod.GET,
                     entity,
-                    new ParameterizedTypeReference<>() {
-                    }
+                    new ParameterizedTypeReference<>() {}
             );
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null && response.getBody().getItems() != null) {
                 processedEmailIds.addAll(response.getBody().getItems().stream()
                         .map(ProcessedEmailIdDto::getEmailId)
                         .toList());
-                logger.info("Loaded {} processed email IDs from APEX: {}", processedEmailIds.size(), processedEmailIds);
+                logger.debug("Loaded {} processed email IDs from APEX.", processedEmailIds.size());
             } else {
                 logger.warn("Received 200 OK but body or items list is null or empty from {}", apexProcessedEmailsEndpoint);
             }
@@ -252,12 +246,6 @@ public class GmailService {
                 }
             }
         }
-
-        // Gmail line-wrap fix: combine lines into paragraphs
         return normalizeParagraphs(body.toString());
-    }
-
-    public GmailService(GmailAuthService gmailAuthService) {
-        this.gmailAuthService = gmailAuthService;
     }
 }
