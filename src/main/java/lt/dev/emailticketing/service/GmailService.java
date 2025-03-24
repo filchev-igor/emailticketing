@@ -11,6 +11,7 @@ import com.google.api.services.gmail.model.Message;
 import com.google.api.services.gmail.model.MessagePart;
 import com.google.api.services.gmail.model.MessagePartHeader;
 import lt.dev.emailticketing.auth.GmailAuthService;
+import lt.dev.emailticketing.client.GmailClientService;
 import lt.dev.emailticketing.dto.EmailRequestDto;
 import lt.dev.emailticketing.dto.ProcessedEmailsResponseDto;
 import lt.dev.emailticketing.dto.ProcessedEmailIdDto;
@@ -43,6 +44,7 @@ public class GmailService {
     private final GmailAuthService gmailAuthService;
     private final EmailParserService emailParserService;
     private final ApexSenderService apexSenderService;
+    private final GmailClientService gmailClientService;
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private Set<String> processedEmailIds;
@@ -65,10 +67,14 @@ public class GmailService {
     @Value("${gmail.max-results}")
     private long maxResults;
 
-    public GmailService(GmailAuthService gmailAuthService,
-                        EmailParserService emailParserService,
-                        ApexSenderService apexSenderService) {
+    public GmailService(
+            GmailAuthService gmailAuthService,
+            GmailClientService gmailClientService,
+            EmailParserService emailParserService,
+            ApexSenderService apexSenderService
+    ) {
         this.gmailAuthService = gmailAuthService;
+        this.gmailClientService = gmailClientService;
         this.emailParserService = emailParserService;
         this.apexSenderService = apexSenderService;
     }
@@ -76,20 +82,14 @@ public class GmailService {
     @PostConstruct
     public void init() throws Exception {
         loadProcessedEmailIdsWithRetries();
-        credential = gmailAuthService.authorize();
-        gmail = new Gmail.Builder(GoogleNetHttpTransport.newTrustedTransport(), JSON_FACTORY, credential)
-                .setApplicationName("EmailTicketing")
-                .build();
+        gmailClientService.initClient();
     }
 
     @Scheduled(fixedRate = 60000)
     public void scanInbox() throws Exception {
         logger.info("Scanning Gmail inbox for new messages...");
         try {
-            List<Message> messages = gmail.users().messages().list(gmailUserId)
-                    .setQ(gmailQuery)
-                    .setMaxResults(maxResults)
-                    .execute().getMessages();
+            List<Message> messages = gmailClientService.fetchInboxMessages();
 
             if (messages != null) {
                 Collections.reverse(messages);
@@ -98,7 +98,7 @@ public class GmailService {
                     String emailId = msg.getId();
                     if (!processedEmailIds.contains(emailId)) {
                         logger.debug("Processing new email with ID: {}", emailId);
-                        Message fullMsg = gmail.users().messages().get(gmailUserId, emailId).execute();
+                        Message fullMsg = gmailClientService.fetchFullMessage(emailId);
                         String fromHeader = fullMsg.getPayload().getHeaders().stream()
                                 .filter(h -> h.getName().equals("From"))
                                 .findFirst().map(MessagePartHeader::getValue).orElse("Unknown");
@@ -126,15 +126,8 @@ public class GmailService {
             if (e.getDetails() != null && "invalid_grant".equals(e.getDetails().getError())) {
                 logger.warn("OAuth token expired or revoked. Reauthorizing...");
 
-                boolean cleared = gmailAuthService.clearStoredToken();
-                if (!cleared) {
-                    logger.warn("Could not delete stored token. Proceeding anyway.");
-                }
+                gmailClientService.reauthorize();
 
-                credential = gmailAuthService.authorize();
-                gmail = new Gmail.Builder(GoogleNetHttpTransport.newTrustedTransport(), JSON_FACTORY, credential)
-                        .setApplicationName("EmailTicketing")
-                        .build();
                 logger.info("Reauthorization successful. Will retry inbox scan on next scheduled run.");
             } else {
                 throw e;
