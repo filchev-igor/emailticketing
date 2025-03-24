@@ -15,12 +15,12 @@ class ApexSenderServiceTest {
 
     private ApexSenderService apexSenderService;
     private RestTemplate restTemplate;
-    private ObjectMapper objectMapper;
 
     @BeforeEach
+    @SuppressWarnings("HttpUrlsUsage")
     void setUp() {
         restTemplate = mock(RestTemplate.class);
-        objectMapper = new ObjectMapper();
+        ObjectMapper objectMapper = new ObjectMapper();
 
         apexSenderService = new ApexSenderService(restTemplate, objectMapper);
         apexSenderService.setApexApiKey("fake-api-key");

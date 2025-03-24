@@ -1,14 +1,13 @@
 package lt.dev.emailticketing.sender;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.Setter;
 import lt.dev.emailticketing.dto.EmailRequestDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestTemplate;
 
 @Service
@@ -16,34 +15,44 @@ public class ApexSenderService {
 
     private static final Logger logger = LoggerFactory.getLogger(ApexSenderService.class);
 
-    private final RestTemplate restTemplate = new RestTemplate();
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper;
 
-    @Value("${apex.api.key}")
-    private String apexApiKey;
-
+    // ✅ Optional setters (for test)
+    @Setter
     @Value("${apex.tickets.endpoint}")
     private String apexTicketsEndpoint;
 
-    public boolean sendToApex(EmailRequestDto dto) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("x-api-key", apexApiKey);
+    @Setter
+    @Value("${apex.api.key}")
+    private String apexApiKey;
 
+    // ✅ Add this constructor
+    public ApexSenderService(RestTemplate restTemplate, ObjectMapper objectMapper) {
+        this.restTemplate = restTemplate;
+        this.objectMapper = objectMapper;
+    }
+
+    public boolean sendToApex(EmailRequestDto emailRequestDto) {
         try {
-            String json = objectMapper.writeValueAsString(dto);
-            logger.debug("Sending JSON to APEX: {}", json);
-            HttpEntity<String> entity = new HttpEntity<>(json, headers);
-            ResponseEntity<String> response = restTemplate.postForEntity(apexTicketsEndpoint, entity, String.class);
-            logger.info("APEX Response Status: {}", response.getStatusCode());
+            String json = objectMapper.writeValueAsString(emailRequestDto);
+            logger.debug("Sending email DTO to APEX: {}", json);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("x-api-key", apexApiKey);
+
+            HttpEntity<String> request = new HttpEntity<>(json, headers);
+
+            ResponseEntity<String> response = restTemplate.postForEntity(apexTicketsEndpoint, request, String.class);
+
+            logger.debug("APEX Response Status: {}", response.getStatusCode());
             logger.debug("APEX Response Body: {}", response.getBody() != null ? response.getBody() : "Empty");
-            return true;
-        } catch (HttpClientErrorException | HttpServerErrorException e) {
-            logger.error("HTTP Error from APEX: {} - {}", e.getStatusCode(), e.getStatusText());
-            logger.error("Response Body: {}", e.getResponseBodyAsString());
+
+            return response.getStatusCode().is2xxSuccessful();
         } catch (Exception e) {
-            logger.error("Failed to send to APEX: {} - {}", e.getClass().getName(), e.getMessage(), e);
+            logger.error("Failed to send email to APEX", e);
+            return false;
         }
-        return false;
     }
 }
