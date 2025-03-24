@@ -16,6 +16,7 @@ import com.google.api.services.gmail.Gmail;
 import com.google.api.services.gmail.model.Message;
 import com.google.api.services.gmail.model.MessagePart;
 import com.google.api.services.gmail.model.MessagePartHeader;
+import lt.dev.emailticketing.auth.GmailAuthService;
 import lt.dev.emailticketing.dto.EmailRequestDto;
 import lt.dev.emailticketing.dto.ProcessedEmailsResponseDto;
 import lt.dev.emailticketing.dto.ProcessedEmailIdDto;
@@ -49,14 +50,13 @@ public class GmailService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private Set<String> processedEmailIds;
 
+    private final GmailAuthService gmailAuthService;
+
     @Value("${apex.tickets.endpoint}")
     private String apexTicketsEndpoint;
 
     @Value("${apex.processed_emails.endpoint}")
     private String apexProcessedEmailsEndpoint;
-
-    @Value("${oauth2.local.server.port:8888}")
-    private int oauth2LocalServerPort;
 
     @Value("${apex.api.key}")
     private String apexApiKey;
@@ -70,41 +70,17 @@ public class GmailService {
     @Value("${gmail.max-results}")
     private long maxResults;
 
-    @Value("${gmail.token.path}")
-    private String tokenPath;
-
-    @Value("${gmail.oauth.user}")
-    private String oauthUser;
-
-
     @PostConstruct
     public void init() throws Exception {
         loadProcessedEmailIdsWithRetries();
 
         NetHttpTransport httpTransport = GoogleNetHttpTransport.newTrustedTransport();
-        credential = authorize(httpTransport);
+
+        credential = gmailAuthService.authorize();
+
         gmail = new Gmail.Builder(httpTransport, JSON_FACTORY, credential)
                 .setApplicationName("EmailTicketing")
                 .build();
-    }
-
-    private Credential authorize(NetHttpTransport httpTransport) throws Exception {
-        GoogleClientSecrets clientSecrets = GoogleClientSecrets.load(
-                JSON_FACTORY,
-                new InputStreamReader(new ClassPathResource("credentials.json").getInputStream())
-        );
-        GoogleAuthorizationCodeFlow flow = new GoogleAuthorizationCodeFlow.Builder(
-                httpTransport, JSON_FACTORY, clientSecrets, Collections.singleton("https://www.googleapis.com/auth/gmail.modify")
-        )
-                .setDataStoreFactory(new FileDataStoreFactory(new File(tokenPath)))
-                .setAccessType("offline")
-                .build();
-
-        LocalServerReceiver receiver = new LocalServerReceiver.Builder()
-                .setPort(oauth2LocalServerPort)
-                .build();
-
-        return new AuthorizationCodeInstalledApp(flow, receiver).authorize(oauthUser);
     }
 
     @Scheduled(fixedRate = 60000)
@@ -143,9 +119,17 @@ public class GmailService {
         } catch (TokenResponseException e) {
             if (e.getDetails() != null && "invalid_grant".equals(e.getDetails().getError())) {
                 logger.warn("OAuth token expired or revoked. Reauthorizing...");
-                clearStoredToken();
+
                 NetHttpTransport httpTransport = GoogleNetHttpTransport.newTrustedTransport();
-                credential = authorize(httpTransport);
+
+                boolean cleared = gmailAuthService.clearStoredToken();
+
+                if (!cleared) {
+                    logger.warn("Could not delete stored token. Proceeding anyway.");
+                }
+
+                credential = gmailAuthService.authorize();
+
                 gmail = new Gmail.Builder(httpTransport, JSON_FACTORY, credential)
                         .setApplicationName("EmailTicketing")
                         .build();
@@ -246,19 +230,6 @@ public class GmailService {
         }
     }
 
-    private void clearStoredToken() {
-        try {
-            File tokenFile = new File(tokenPath + "/StoredCredential");
-            if (tokenFile.exists() && tokenFile.delete()) {
-                logger.info("Deleted expired stored token.");
-            } else {
-                logger.warn("Failed to delete stored token.");
-            }
-        } catch (Exception e) {
-            logger.error("Failed to delete stored token: {}", e.getMessage(), e);
-        }
-    }
-
     private SenderInfo extractSenderInfo(String fromHeader) {
         String name = "Unknown";
         String email = "unknown@unknown.com";
@@ -292,5 +263,9 @@ public class GmailService {
 
         // Gmail line-wrap fix: combine lines into paragraphs
         return normalizeParagraphs(body.toString());
+    }
+
+    public GmailService(GmailAuthService gmailAuthService) {
+        this.gmailAuthService = gmailAuthService;
     }
 }
