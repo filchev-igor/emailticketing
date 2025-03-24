@@ -17,6 +17,8 @@ import lt.dev.emailticketing.dto.ProcessedEmailIdDto;
 import lt.dev.emailticketing.internal.SenderInfo;
 import static lt.dev.emailticketing.util.GmailUtils.*;
 
+import lt.dev.emailticketing.parser.EmailParserService;
+import lt.dev.emailticketing.sender.ApexSenderService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -39,6 +41,8 @@ public class GmailService {
     private Gmail gmail;
     private Credential credential;
     private final GmailAuthService gmailAuthService;
+    private final EmailParserService emailParserService;
+    private final ApexSenderService apexSenderService;
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private Set<String> processedEmailIds;
@@ -61,8 +65,12 @@ public class GmailService {
     @Value("${gmail.max-results}")
     private long maxResults;
 
-    public GmailService(GmailAuthService gmailAuthService) {
+    public GmailService(GmailAuthService gmailAuthService,
+                        EmailParserService emailParserService,
+                        ApexSenderService apexSenderService) {
         this.gmailAuthService = gmailAuthService;
+        this.emailParserService = emailParserService;
+        this.apexSenderService = apexSenderService;
     }
 
     @PostConstruct
@@ -94,12 +102,19 @@ public class GmailService {
                         String fromHeader = fullMsg.getPayload().getHeaders().stream()
                                 .filter(h -> h.getName().equals("From"))
                                 .findFirst().map(MessagePartHeader::getValue).orElse("Unknown");
-                        SenderInfo senderInfo = extractSenderInfo(fromHeader);
+                        SenderInfo senderInfo = emailParserService.extractSenderInfo(fromHeader);
                         String subject = fullMsg.getPayload().getHeaders().stream()
                                 .filter(h -> h.getName().equals("Subject"))
                                 .findFirst().map(MessagePartHeader::getValue).orElse("No Subject");
-                        String body = extractBody(fullMsg);
-                        sendToApex(emailId, senderInfo.getName(), senderInfo.getEmail(), subject, body);
+                        String body = emailParserService.extractBody(fullMsg);
+
+                        EmailRequestDto dto = new EmailRequestDto(emailId, senderInfo.getName(), senderInfo.getEmail(), subject, body);
+
+                        boolean success = apexSenderService.sendToApex(dto);
+
+                        if (success) {
+                            processedEmailIds.add(emailId);
+                        }
                     } else {
                         logger.debug("Skipping already processed email with ID: {}", emailId);
                     }
@@ -132,35 +147,6 @@ public class GmailService {
         logger.info("Refreshing processed email IDs to sync with external updates...");
         loadProcessedEmailIds();
         logger.info("Refreshed processed email IDs: {}", processedEmailIds);
-    }
-
-    private void sendToApex(String emailId, String senderName, String senderEmail, String subject, String body) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("x-api-key", apexApiKey);
-        EmailRequestDto emailData = new EmailRequestDto(emailId, senderName, senderEmail, subject, body);
-        String json;
-        try {
-            json = objectMapper.writeValueAsString(emailData);
-            logger.debug("Sending JSON to APEX: {}", json);
-        } catch (Exception e) {
-            logger.error("Failed to serialize email data to JSON", e);
-            throw new RuntimeException("Failed to serialize email data to JSON", e);
-        }
-        HttpEntity<String> entity = new HttpEntity<>(json, headers);
-        try {
-            ResponseEntity<String> response = restTemplate.postForEntity(apexTicketsEndpoint, entity, String.class);
-            logger.info("APEX Response Status: {}", response.getStatusCode());
-            logger.debug("APEX Response Body: {}", response.getBody() != null ? response.getBody() : "Empty");
-            processedEmailIds.add(emailId);
-        } catch (HttpClientErrorException | HttpServerErrorException e) {
-            logger.error("HTTP Error from APEX: {} - {}", e.getStatusCode(), e.getStatusText());
-            logger.error("Response Body: {}", e.getResponseBodyAsString() != null ? e.getResponseBodyAsString() : "Empty");
-            throw e;
-        } catch (Exception e) {
-            logger.error("Failed to send to APEX: {} - {}", e.getClass().getName(), e.getMessage(), e);
-            throw e;
-        }
     }
 
     private void loadProcessedEmailIdsWithRetries() throws InterruptedException {
@@ -214,38 +200,5 @@ public class GmailService {
             logger.error("Failed to load processed email IDs: {}", e.getMessage(), e);
             throw new RuntimeException("Unexpected error loading processed email IDs", e);
         }
-    }
-
-    private SenderInfo extractSenderInfo(String fromHeader) {
-        String name = "Unknown";
-        String email = "unknown@unknown.com";
-        if (fromHeader != null && !fromHeader.isEmpty()) {
-            if (fromHeader.contains("<")) {
-                name = fromHeader.substring(0, fromHeader.indexOf("<")).trim();
-                email = fromHeader.substring(fromHeader.indexOf("<") + 1, fromHeader.indexOf(">")).trim();
-            } else {
-                email = fromHeader.trim();
-                name = email.contains("@") ? email.substring(0, email.indexOf("@")) : email;
-            }
-        }
-        return new SenderInfo(name, email);
-    }
-
-    private String extractBody(Message message) {
-        StringBuilder body = new StringBuilder();
-        if (message.getPayload() != null) {
-            if (message.getPayload().getBody() != null && message.getPayload().getBody().getData() != null) {
-                body.append(decodeBase64(message.getPayload().getBody().getData()));
-            }
-            List<MessagePart> parts = message.getPayload().getParts();
-            if (parts != null) {
-                for (MessagePart part : parts) {
-                    if ("text/plain".equals(part.getMimeType()) && part.getBody() != null && part.getBody().getData() != null) {
-                        body.append(decodeBase64(part.getBody().getData()));
-                    }
-                }
-            }
-        }
-        return normalizeParagraphs(body.toString());
     }
 }
