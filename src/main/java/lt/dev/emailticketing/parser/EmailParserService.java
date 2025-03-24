@@ -2,7 +2,6 @@ package lt.dev.emailticketing.parser;
 
 import com.google.api.services.gmail.model.Message;
 import com.google.api.services.gmail.model.MessagePart;
-import com.google.api.services.gmail.model.MessagePartHeader;
 import lt.dev.emailticketing.internal.SenderInfo;
 import org.springframework.stereotype.Service;
 
