@@ -22,23 +22,23 @@ class EmailParserServiceTest {
     void extractSenderInfo_withNameAndEmail_shouldExtractCorrectly() {
         String header = "John Doe <john@example.com>";
         SenderInfo info = emailParserService.extractSenderInfo(header);
-        assertEquals("John Doe", info.getName());
-        assertEquals("john@example.com", info.getEmail());
+        assertEquals("John Doe", info.name());
+        assertEquals("john@example.com", info.email());
     }
 
     @Test
     void extractSenderInfo_withOnlyEmail_shouldUseEmailAsName() {
         String header = "jane@example.com";
         SenderInfo info = emailParserService.extractSenderInfo(header);
-        assertEquals("jane", info.getName());
-        assertEquals("jane@example.com", info.getEmail());
+        assertEquals("jane", info.name());
+        assertEquals("jane@example.com", info.email());
     }
 
     @Test
     void extractSenderInfo_withNull_shouldReturnUnknown() {
         SenderInfo info = emailParserService.extractSenderInfo(null);
-        assertEquals("Unknown", info.getName());
-        assertEquals("unknown@unknown.com", info.getEmail());
+        assertEquals("Unknown", info.name());
+        assertEquals("unknown@unknown.com", info.email());
     }
 
     @Test

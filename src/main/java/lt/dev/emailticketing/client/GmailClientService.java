@@ -2,7 +2,7 @@ package lt.dev.emailticketing.client;
 
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.json.JsonFactory;
-import com.google.api.client.json.jackson2.JacksonFactory;
+import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.services.gmail.Gmail;
 import com.google.api.services.gmail.model.Message;
 import com.google.api.client.auth.oauth2.Credential;
@@ -15,7 +15,7 @@ import java.util.List;
 @Service
 public class GmailClientService {
 
-    private static final JsonFactory JSON_FACTORY = JacksonFactory.getDefaultInstance();
+    private static final JsonFactory JSON_FACTORY = GsonFactory.getDefaultInstance();
 
     private final GmailAuthService gmailAuthService;
     private Gmail gmail;

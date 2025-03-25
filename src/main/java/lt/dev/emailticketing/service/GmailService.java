@@ -80,7 +80,7 @@ public class GmailService {
                                 .findFirst().map(MessagePartHeader::getValue).orElse("No Subject");
                         String body = emailParserService.extractBody(fullMsg);
 
-                        EmailRequestDto dto = new EmailRequestDto(emailId, senderInfo.getName(), senderInfo.getEmail(), subject, body);
+                        EmailRequestDto dto = new EmailRequestDto(emailId, senderInfo.name(), senderInfo.email(), subject, body);
 
                         boolean success = apexSenderService.sendToApex(dto);
 
@@ -159,7 +159,8 @@ public class GmailService {
             }
         } catch (HttpClientErrorException | HttpServerErrorException e) {
             logger.error("HTTP Error loading processed email IDs: {} - {}", e.getStatusCode(), e.getStatusText());
-            logger.error("Response Body: {}", e.getResponseBodyAsString() != null ? e.getResponseBodyAsString() : "Empty");
+            e.getResponseBodyAsString();
+            logger.error("Response Body: {}", e.getResponseBodyAsString());
             throw e;
         } catch (Exception e) {
             logger.error("Failed to load processed email IDs: {}", e.getMessage(), e);
