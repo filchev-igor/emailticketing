@@ -1,22 +1,13 @@
 package lt.dev.emailticketing.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.api.client.auth.oauth2.Credential;
 import com.google.api.client.auth.oauth2.TokenResponseException;
-import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
-import com.google.api.client.json.JsonFactory;
-import com.google.api.client.json.jackson2.JacksonFactory;
-import com.google.api.services.gmail.Gmail;
 import com.google.api.services.gmail.model.Message;
-import com.google.api.services.gmail.model.MessagePart;
 import com.google.api.services.gmail.model.MessagePartHeader;
-import lt.dev.emailticketing.auth.GmailAuthService;
 import lt.dev.emailticketing.client.GmailClientService;
 import lt.dev.emailticketing.dto.EmailRequestDto;
 import lt.dev.emailticketing.dto.ProcessedEmailsResponseDto;
 import lt.dev.emailticketing.dto.ProcessedEmailIdDto;
 import lt.dev.emailticketing.internal.SenderInfo;
-import static lt.dev.emailticketing.util.GmailUtils.*;
 
 import lt.dev.emailticketing.parser.EmailParserService;
 import lt.dev.emailticketing.sender.ApexSenderService;
@@ -37,20 +28,12 @@ import java.util.*;
 @Service
 public class GmailService {
     private static final Logger logger = LoggerFactory.getLogger(GmailService.class);
-    private static final JsonFactory JSON_FACTORY = JacksonFactory.getDefaultInstance();
 
-    private Gmail gmail;
-    private Credential credential;
-    private final GmailAuthService gmailAuthService;
     private final EmailParserService emailParserService;
     private final ApexSenderService apexSenderService;
     private final GmailClientService gmailClientService;
     private final RestTemplate restTemplate = new RestTemplate();
-    private final ObjectMapper objectMapper = new ObjectMapper();
     private Set<String> processedEmailIds;
-
-    @Value("${apex.tickets.endpoint}")
-    private String apexTicketsEndpoint;
 
     @Value("${apex.processed_emails.endpoint}")
     private String apexProcessedEmailsEndpoint;
@@ -58,22 +41,11 @@ public class GmailService {
     @Value("${apex.api.key}")
     private String apexApiKey;
 
-    @Value("${gmail.user.id}")
-    private String gmailUserId;
-
-    @Value("${gmail.query}")
-    private String gmailQuery;
-
-    @Value("${gmail.max-results}")
-    private long maxResults;
-
     public GmailService(
-            GmailAuthService gmailAuthService,
             GmailClientService gmailClientService,
             EmailParserService emailParserService,
             ApexSenderService apexSenderService
     ) {
-        this.gmailAuthService = gmailAuthService;
         this.gmailClientService = gmailClientService;
         this.emailParserService = emailParserService;
         this.apexSenderService = apexSenderService;
@@ -108,7 +80,7 @@ public class GmailService {
                                 .findFirst().map(MessagePartHeader::getValue).orElse("No Subject");
                         String body = emailParserService.extractBody(fullMsg);
 
-                        EmailRequestDto dto = new EmailRequestDto(emailId, senderInfo.getName(), senderInfo.getEmail(), subject, body);
+                        EmailRequestDto dto = new EmailRequestDto(emailId, senderInfo.name(), senderInfo.email(), subject, body);
 
                         boolean success = apexSenderService.sendToApex(dto);
 
@@ -187,7 +159,8 @@ public class GmailService {
             }
         } catch (HttpClientErrorException | HttpServerErrorException e) {
             logger.error("HTTP Error loading processed email IDs: {} - {}", e.getStatusCode(), e.getStatusText());
-            logger.error("Response Body: {}", e.getResponseBodyAsString() != null ? e.getResponseBodyAsString() : "Empty");
+            e.getResponseBodyAsString();
+            logger.error("Response Body: {}", e.getResponseBodyAsString());
             throw e;
         } catch (Exception e) {
             logger.error("Failed to load processed email IDs: {}", e.getMessage(), e);
