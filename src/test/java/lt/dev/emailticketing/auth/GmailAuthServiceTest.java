@@ -38,7 +38,8 @@ class GmailAuthServiceTest {
     void clearStoredToken_shouldReturnFalseIfFileDoesNotExist() {
         File tokenFile = new File("build/test-tokens/StoredCredential");
         if (tokenFile.exists()) {
-            tokenFile.delete();
+            boolean deleted = tokenFile.delete();
+            assertTrue(deleted, "Test setup failed: could not delete existing file");
         }
 
         boolean result = authService.clearStoredToken();
@@ -48,10 +49,12 @@ class GmailAuthServiceTest {
     @Test
     void clearStoredToken_shouldReturnTrueIfFileExists() throws Exception {
         File dir = new File("build/test-tokens");
-        dir.mkdirs();
+        boolean dirsOk = dir.mkdirs() || dir.exists();
+        assertTrue(dirsOk, "Failed to create test-tokens directory");
+
         File tokenFile = new File(dir, "StoredCredential");
         boolean created = tokenFile.createNewFile();
-        assertTrue(created || tokenFile.exists());
+        assertTrue(created || tokenFile.exists(), "Failed to create StoredCredential file");
 
         boolean result = authService.clearStoredToken();
         assertTrue(result);
