@@ -1,9 +1,7 @@
 package lt.dev.emailticketing.auth;
 
-import com.google.api.client.auth.oauth2.Credential;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.core.io.ClassPathResource;
 
 import java.io.File;
 import java.lang.reflect.Field;
