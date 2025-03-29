@@ -4,25 +4,25 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
 public class ExecutorServiceWrapper implements AutoCloseable {
-    private final ExecutorService executor;
+    private final ExecutorService executorService;
 
-    public ExecutorServiceWrapper(ExecutorService executor) {
-        this.executor = executor;
+    public ExecutorServiceWrapper(ExecutorService executorService) {
+        this.executorService = executorService;
     }
 
     public void submit(Runnable task) {
-        executor.submit(task);
+        executorService.submit(task);
     }
 
     @Override
     public void close() {
-        executor.shutdown();
+        executorService.shutdown();
         try {
-            if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
-                executor.shutdownNow();
+            if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
+                executorService.shutdownNow();
             }
         } catch (InterruptedException e) {
-            executor.shutdownNow();
+            executorService.shutdownNow();
             Thread.currentThread().interrupt();
         }
     }

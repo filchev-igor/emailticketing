@@ -43,6 +43,9 @@ public class GmailService {
     @Value("${apex.api.key}")
     private String apexApiKey;
 
+    @Value("${gmail.thread-pool-size:3}")
+    private int threadPoolSize;
+
     public GmailService(
             GmailClientService gmailClientService,
             EmailParserService emailParserService,
@@ -68,14 +71,15 @@ public class GmailService {
             if (messages != null) {
                 Collections.reverse(messages);
 
-                // ✅ Use try-with-resources for ExecutorService (custom helper)
-                try (ExecutorServiceWrapper executorWrapper = new ExecutorServiceWrapper(Executors.newFixedThreadPool(3))) {
+                // ✅ Use try-with-resources and our wrapper for clean shutdown
+                try (ExecutorServiceWrapper executorWrapper = new ExecutorServiceWrapper(Executors.newFixedThreadPool(threadPoolSize))) {
                     for (Message msg : messages) {
                         String emailId = msg.getId();
                         if (!processedEmailIds.contains(emailId)) {
                             executorWrapper.submit(() -> {
                                 try {
                                     logger.debug("Processing email ID: {}", emailId);
+
                                     Message fullMsg = gmailClientService.fetchFullMessage(emailId);
                                     String fromHeader = fullMsg.getPayload().getHeaders().stream()
                                             .filter(h -> h.getName().equals("From"))
@@ -96,7 +100,6 @@ public class GmailService {
                                     );
 
                                     boolean success = apexSenderService.sendToApex(dto);
-
                                     if (success) {
                                         synchronized (this) {
                                             processedEmailIds.add(emailId);
@@ -110,7 +113,7 @@ public class GmailService {
                             logger.debug("Skipping already processed email with ID: {}", emailId);
                         }
                     }
-                }
+                } // ✅ Will shut down and await thread termination automatically
             } else {
                 logger.info("No new messages found in inbox.");
             }
