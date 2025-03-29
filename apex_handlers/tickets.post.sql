@@ -1,7 +1,7 @@
 DECLARE
 -- 1) Check the API key first
 l_provided_key VARCHAR2(200) := owa_util.get_cgi_env('x-api-key');
-    l_expected_key VARCHAR2(200) := 'my-x-api-key';
+    l_expected_key VARCHAR2(200) := '1234-ABCD-5678-EFGH';
 
     -- 2) Your existing variables
     l_email_id tickets.email_id%TYPE;
@@ -71,8 +71,13 @@ FROM senders
 WHERE sender_email = l_sender_email;
 
 -- Insert into tickets
-INSERT INTO tickets (email_id, sender_id, subject, body, status, creation_date, update_date)
-VALUES (l_email_id, l_sender_id, l_subject, l_body, 'NEW', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+INSERT INTO tickets (
+    email_id, sender_id, subject, body, status, creation_date, update_date
+) VALUES (
+             l_email_id, l_sender_id, l_subject, l_body, 'NEW',
+             TO_TIMESTAMP_TZ(l_gmail_date, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+             TO_TIMESTAMP_TZ(l_gmail_date, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+         );
 
 -- Insert into processed_emails
 BEGIN
