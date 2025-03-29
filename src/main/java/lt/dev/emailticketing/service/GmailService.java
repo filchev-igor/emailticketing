@@ -11,6 +11,7 @@ import lt.dev.emailticketing.internal.SenderInfo;
 
 import lt.dev.emailticketing.parser.EmailParserService;
 import lt.dev.emailticketing.sender.ApexSenderService;
+import lt.dev.emailticketing.util.ExecutorServiceWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -23,7 +24,9 @@ import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.PostConstruct;
+import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.Executors;
 
 @Service
 public class GmailService {
@@ -40,6 +43,9 @@ public class GmailService {
 
     @Value("${apex.api.key}")
     private String apexApiKey;
+
+    @Value("${gmail.thread-pool-size:3}")
+    private int threadPoolSize;
 
     public GmailService(
             GmailClientService gmailClientService,
@@ -66,40 +72,61 @@ public class GmailService {
             if (messages != null) {
                 Collections.reverse(messages);
 
-                for (Message msg : messages) {
-                    String emailId = msg.getId();
-                    if (!processedEmailIds.contains(emailId)) {
-                        logger.debug("Processing new email with ID: {}", emailId);
-                        Message fullMsg = gmailClientService.fetchFullMessage(emailId);
-                        String fromHeader = fullMsg.getPayload().getHeaders().stream()
-                                .filter(h -> h.getName().equals("From"))
-                                .findFirst().map(MessagePartHeader::getValue).orElse("Unknown");
-                        SenderInfo senderInfo = emailParserService.extractSenderInfo(fromHeader);
-                        String subject = fullMsg.getPayload().getHeaders().stream()
-                                .filter(h -> h.getName().equals("Subject"))
-                                .findFirst().map(MessagePartHeader::getValue).orElse("No Subject");
-                        String body = emailParserService.extractBody(fullMsg);
+                // ✅ Use try-with-resources and our wrapper for clean shutdown
+                try (ExecutorServiceWrapper executorWrapper = new ExecutorServiceWrapper(Executors.newFixedThreadPool(threadPoolSize))) {
+                    for (Message msg : messages) {
+                        String emailId = msg.getId();
+                        if (!processedEmailIds.contains(emailId)) {
+                            executorWrapper.submit(() -> {
+                                try {
+                                    logger.debug("Processing email ID: {}", emailId);
 
-                        EmailRequestDto dto = new EmailRequestDto(emailId, senderInfo.name(), senderInfo.email(), subject, body);
+                                    Message fullMsg = gmailClientService.fetchFullMessage(emailId);
+                                    String fromHeader = fullMsg.getPayload().getHeaders().stream()
+                                            .filter(h -> h.getName().equals("From"))
+                                            .findFirst().map(MessagePartHeader::getValue).orElse("Unknown");
 
-                        boolean success = apexSenderService.sendToApex(dto);
+                                    SenderInfo senderInfo = emailParserService.extractSenderInfo(fromHeader);
+                                    String subject = fullMsg.getPayload().getHeaders().stream()
+                                            .filter(h -> h.getName().equals("Subject"))
+                                            .findFirst().map(MessagePartHeader::getValue).orElse("No Subject");
+                                    String body = emailParserService.extractBody(fullMsg);
 
-                        if (success) {
-                            processedEmailIds.add(emailId);
+                                    String gmailDate = fullMsg.getInternalDate() != null
+                                            ? Instant.ofEpochMilli(fullMsg.getInternalDate()).toString()
+                                            : Instant.now().toString();
+
+                                    EmailRequestDto dto = new EmailRequestDto(
+                                            emailId,
+                                            senderInfo.name(),
+                                            senderInfo.email(),
+                                            subject,
+                                            body,
+                                            gmailDate
+                                    );
+
+                                    boolean success = apexSenderService.sendToApex(dto);
+                                    if (success) {
+                                        synchronized (this) {
+                                            processedEmailIds.add(emailId);
+                                        }
+                                    }
+                                } catch (Exception e) {
+                                    logger.error("Error processing email ID {}: {}", emailId, e.getMessage(), e);
+                                }
+                            });
+                        } else {
+                            logger.debug("Skipping already processed email with ID: {}", emailId);
                         }
-                    } else {
-                        logger.debug("Skipping already processed email with ID: {}", emailId);
                     }
-                }
+                } // ✅ Will shut down and await thread termination automatically
             } else {
                 logger.info("No new messages found in inbox.");
             }
         } catch (TokenResponseException e) {
             if (e.getDetails() != null && "invalid_grant".equals(e.getDetails().getError())) {
                 logger.warn("OAuth token expired or revoked. Reauthorizing...");
-
                 gmailClientService.reauthorize();
-
                 logger.info("Reauthorization successful. Will retry inbox scan on next scheduled run.");
             } else {
                 throw e;
