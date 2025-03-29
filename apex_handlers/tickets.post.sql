@@ -1,7 +1,7 @@
 DECLARE
 -- 1) Check the API key first
 l_provided_key VARCHAR2(200) := owa_util.get_cgi_env('x-api-key');
-    l_expected_key VARCHAR2(200) := '1234-ABCD-5678-EFGH';
+    l_expected_key VARCHAR2(200) := 'my-x-api-key';
 
     -- 2) Your existing variables
     l_email_id tickets.email_id%TYPE;

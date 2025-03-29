@@ -1,6 +1,6 @@
 DECLARE
 l_provided_key VARCHAR2(200) := owa_util.get_cgi_env('x-api-key');
-   l_expected_key VARCHAR2(200) := '1234-ABCD-5678-EFGH';
+   l_expected_key VARCHAR2(200) := 'my-x-api-key';
 BEGIN
    owa_util.mime_header('application/json; charset=utf-8', FALSE);
    owa_util.http_header_close;
