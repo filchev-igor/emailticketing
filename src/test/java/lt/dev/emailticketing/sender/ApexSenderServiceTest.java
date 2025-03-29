@@ -29,7 +29,14 @@ class ApexSenderServiceTest {
 
     @Test
     void sendToApex_shouldReturnTrueOnSuccess() {
-        EmailRequestDto dto = new EmailRequestDto("123", "John", "john@example.com", "Subject", "Body");
+        EmailRequestDto dto = new EmailRequestDto(
+                "123",
+                "John",
+                "john@example.com",
+                "Subject",
+                "Body",
+                "2024-03-29T14:00:00Z"
+        );
 
         ResponseEntity<String> mockResponse = new ResponseEntity<>("OK", HttpStatus.OK);
         when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(String.class)))
@@ -43,8 +50,14 @@ class ApexSenderServiceTest {
 
     @Test
     void sendToApex_shouldReturnFalseOnException() {
-        EmailRequestDto dto = new EmailRequestDto("123", "John", "john@example.com", "Subject", "Body");
-
+        EmailRequestDto dto = new EmailRequestDto(
+                "123",
+                "John",
+                "john@example.com",
+                "Subject",
+                "Body",
+                "2024-03-29T14:00:00Z"
+        );
         when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(String.class)))
                 .thenThrow(new RuntimeException("APEX down"));
 

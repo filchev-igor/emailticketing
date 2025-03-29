@@ -24,6 +24,7 @@ import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.PostConstruct;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.Executors;
 
@@ -91,12 +92,17 @@ public class GmailService {
                                             .findFirst().map(MessagePartHeader::getValue).orElse("No Subject");
                                     String body = emailParserService.extractBody(fullMsg);
 
+                                    String gmailDate = fullMsg.getInternalDate() != null
+                                            ? Instant.ofEpochMilli(fullMsg.getInternalDate()).toString()
+                                            : Instant.now().toString();
+
                                     EmailRequestDto dto = new EmailRequestDto(
                                             emailId,
                                             senderInfo.name(),
                                             senderInfo.email(),
                                             subject,
-                                            body
+                                            body,
+                                            gmailDate
                                     );
 
                                     boolean success = apexSenderService.sendToApex(dto);
