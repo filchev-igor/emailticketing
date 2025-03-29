@@ -11,6 +11,7 @@ import lt.dev.emailticketing.internal.SenderInfo;
 
 import lt.dev.emailticketing.parser.EmailParserService;
 import lt.dev.emailticketing.sender.ApexSenderService;
+import lt.dev.emailticketing.util.ExecutorServiceWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,9 +25,7 @@ import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.PostConstruct;
 import java.util.*;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 @Service
 public class GmailService {
@@ -69,61 +68,56 @@ public class GmailService {
             if (messages != null) {
                 Collections.reverse(messages);
 
-                // 🧵 Use thread pool
-                ExecutorService executor = Executors.newFixedThreadPool(3); // Tune as needed
+                // ✅ Use try-with-resources for ExecutorService (custom helper)
+                try (ExecutorServiceWrapper executorWrapper = new ExecutorServiceWrapper(Executors.newFixedThreadPool(3))) {
+                    for (Message msg : messages) {
+                        String emailId = msg.getId();
+                        if (!processedEmailIds.contains(emailId)) {
+                            executorWrapper.submit(() -> {
+                                try {
+                                    logger.debug("Processing email ID: {}", emailId);
+                                    Message fullMsg = gmailClientService.fetchFullMessage(emailId);
+                                    String fromHeader = fullMsg.getPayload().getHeaders().stream()
+                                            .filter(h -> h.getName().equals("From"))
+                                            .findFirst().map(MessagePartHeader::getValue).orElse("Unknown");
 
-                for (Message msg : messages) {
-                    String emailId = msg.getId();
-                    if (!processedEmailIds.contains(emailId)) {
-                        executor.submit(() -> {
-                            try {
-                                logger.debug("Processing email ID: {}", emailId);
-                                Message fullMsg = gmailClientService.fetchFullMessage(emailId);
-                                String fromHeader = fullMsg.getPayload().getHeaders().stream()
-                                        .filter(h -> h.getName().equals("From"))
-                                        .findFirst().map(MessagePartHeader::getValue).orElse("Unknown");
+                                    SenderInfo senderInfo = emailParserService.extractSenderInfo(fromHeader);
+                                    String subject = fullMsg.getPayload().getHeaders().stream()
+                                            .filter(h -> h.getName().equals("Subject"))
+                                            .findFirst().map(MessagePartHeader::getValue).orElse("No Subject");
+                                    String body = emailParserService.extractBody(fullMsg);
 
-                                SenderInfo senderInfo = emailParserService.extractSenderInfo(fromHeader);
-                                String subject = fullMsg.getPayload().getHeaders().stream()
-                                        .filter(h -> h.getName().equals("Subject"))
-                                        .findFirst().map(MessagePartHeader::getValue).orElse("No Subject");
-                                String body = emailParserService.extractBody(fullMsg);
+                                    EmailRequestDto dto = new EmailRequestDto(
+                                            emailId,
+                                            senderInfo.name(),
+                                            senderInfo.email(),
+                                            subject,
+                                            body
+                                    );
 
-                                EmailRequestDto dto = new EmailRequestDto(
-                                        emailId,
-                                        senderInfo.name(),
-                                        senderInfo.email(),
-                                        subject,
-                                        body
-                                );
+                                    boolean success = apexSenderService.sendToApex(dto);
 
-                                boolean success = apexSenderService.sendToApex(dto);
-
-                                if (success) {
-                                    synchronized (processedEmailIds) {
-                                        processedEmailIds.add(emailId);
+                                    if (success) {
+                                        synchronized (this) {
+                                            processedEmailIds.add(emailId);
+                                        }
                                     }
+                                } catch (Exception e) {
+                                    logger.error("Error processing email ID {}: {}", emailId, e.getMessage(), e);
                                 }
-                            } catch (Exception e) {
-                                logger.error("Error processing email ID {}: {}", emailId, e.getMessage(), e);
-                            }
-                        });
-                    } else {
-                        logger.debug("Skipping already processed email with ID: {}", emailId);
+                            });
+                        } else {
+                            logger.debug("Skipping already processed email with ID: {}", emailId);
+                        }
                     }
                 }
-
-                executor.shutdown();
-                executor.awaitTermination(60, TimeUnit.SECONDS);
             } else {
                 logger.info("No new messages found in inbox.");
             }
         } catch (TokenResponseException e) {
             if (e.getDetails() != null && "invalid_grant".equals(e.getDetails().getError())) {
                 logger.warn("OAuth token expired or revoked. Reauthorizing...");
-
                 gmailClientService.reauthorize();
-
                 logger.info("Reauthorization successful. Will retry inbox scan on next scheduled run.");
             } else {
                 throw e;
