@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class ExecutorServiceWrapperTest {
 
     @Test
-    void submit_shouldExecuteAllTasksBeforeClose() throws Exception {
+    void submit_shouldExecuteAllTasksBeforeClose() {
         AtomicInteger counter = new AtomicInteger(0);
 
         try (ExecutorServiceWrapper wrapper = new ExecutorServiceWrapper(Executors.newFixedThreadPool(2))) {
