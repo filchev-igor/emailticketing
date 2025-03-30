@@ -2,15 +2,13 @@ package lt.dev.emailticketing.service;
 
 import com.google.api.client.auth.oauth2.TokenResponseException;
 import com.google.api.services.gmail.model.Message;
-import com.google.api.services.gmail.model.MessagePartHeader;
+import jakarta.mail.Session;
+import jakarta.mail.internet.InternetAddress;
+import jakarta.mail.internet.MimeMessage;
 import lt.dev.emailticketing.client.GmailClientService;
-import lt.dev.emailticketing.dto.EmailRequestDto;
-import lt.dev.emailticketing.dto.ProcessedEmailsResponseDto;
 import lt.dev.emailticketing.dto.ProcessedEmailIdDto;
-import lt.dev.emailticketing.internal.SenderInfo;
-
-import lt.dev.emailticketing.parser.EmailParserService;
-import lt.dev.emailticketing.sender.ApexSenderService;
+import lt.dev.emailticketing.dto.ProcessedEmailsResponseDto;
+import lt.dev.emailticketing.dto.SendReplyDto;
 import lt.dev.emailticketing.util.ExecutorServiceWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,17 +22,20 @@ import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.PostConstruct;
-import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.Executors;
+
+import java.io.ByteArrayOutputStream;
+import java.util.Base64;
+import java.util.Properties;
 
 @Service
 public class GmailService {
     private static final Logger logger = LoggerFactory.getLogger(GmailService.class);
 
-    private final EmailParserService emailParserService;
-    private final ApexSenderService apexSenderService;
     private final GmailClientService gmailClientService;
+    private final EmailProcessingService emailProcessingService;
+
     private final RestTemplate restTemplate = new RestTemplate();
     private Set<String> processedEmailIds;
 
@@ -49,85 +50,51 @@ public class GmailService {
 
     public GmailService(
             GmailClientService gmailClientService,
-            EmailParserService emailParserService,
-            ApexSenderService apexSenderService
+            EmailProcessingService emailProcessingService
     ) {
         this.gmailClientService = gmailClientService;
-        this.emailParserService = emailParserService;
-        this.apexSenderService = apexSenderService;
+        this.emailProcessingService = emailProcessingService;
     }
 
     @PostConstruct
     public void init() throws Exception {
+        logger.info("Initializing GmailService...");
         loadProcessedEmailIdsWithRetries();
         gmailClientService.initClient();
     }
 
     @Scheduled(fixedRate = 60000)
     public void scanInbox() throws Exception {
-        logger.info("Scanning Gmail inbox for new messages...");
+        logger.info("📥 Scanning Gmail inbox for new messages...");
+
         try {
             List<Message> messages = gmailClientService.fetchInboxMessages();
 
             if (messages != null) {
                 Collections.reverse(messages);
 
-                // ✅ Use try-with-resources and our wrapper for clean shutdown
-                try (ExecutorServiceWrapper executorWrapper = new ExecutorServiceWrapper(Executors.newFixedThreadPool(threadPoolSize))) {
+                try (ExecutorServiceWrapper executorWrapper = new ExecutorServiceWrapper(
+                        Executors.newFixedThreadPool(threadPoolSize))) {
+
                     for (Message msg : messages) {
                         String emailId = msg.getId();
+
                         if (!processedEmailIds.contains(emailId)) {
-                            executorWrapper.submit(() -> {
-                                try {
-                                    logger.debug("Processing email ID: {}", emailId);
-
-                                    Message fullMsg = gmailClientService.fetchFullMessage(emailId);
-                                    String fromHeader = fullMsg.getPayload().getHeaders().stream()
-                                            .filter(h -> h.getName().equals("From"))
-                                            .findFirst().map(MessagePartHeader::getValue).orElse("Unknown");
-
-                                    SenderInfo senderInfo = emailParserService.extractSenderInfo(fromHeader);
-                                    String subject = fullMsg.getPayload().getHeaders().stream()
-                                            .filter(h -> h.getName().equals("Subject"))
-                                            .findFirst().map(MessagePartHeader::getValue).orElse("No Subject");
-                                    String body = emailParserService.extractBody(fullMsg);
-
-                                    String gmailDate = fullMsg.getInternalDate() != null
-                                            ? Instant.ofEpochMilli(fullMsg.getInternalDate()).toString()
-                                            : Instant.now().toString();
-
-                                    EmailRequestDto dto = new EmailRequestDto(
-                                            emailId,
-                                            senderInfo.name(),
-                                            senderInfo.email(),
-                                            subject,
-                                            body,
-                                            gmailDate
-                                    );
-
-                                    boolean success = apexSenderService.sendToApex(dto);
-                                    if (success) {
-                                        synchronized (this) {
-                                            processedEmailIds.add(emailId);
-                                        }
-                                    }
-                                } catch (Exception e) {
-                                    logger.error("Error processing email ID {}: {}", emailId, e.getMessage(), e);
-                                }
-                            });
+                            executorWrapper.submit(() -> emailProcessingService.processEmail(emailId, processedEmailIds));
                         } else {
-                            logger.debug("Skipping already processed email with ID: {}", emailId);
+                            logger.debug("🔁 Skipping already processed email with ID: {}", emailId);
                         }
                     }
-                } // ✅ Will shut down and await thread termination automatically
+                }
             } else {
                 logger.info("No new messages found in inbox.");
             }
+
         } catch (TokenResponseException e) {
             if (e.getDetails() != null && "invalid_grant".equals(e.getDetails().getError())) {
-                logger.warn("OAuth token expired or revoked. Reauthorizing...");
+                logger.warn("⚠️ OAuth token expired or revoked. Reauthorizing...");
                 gmailClientService.reauthorize();
-                logger.info("Reauthorization successful. Will retry inbox scan on next scheduled run.");
+                logger.info("✅ Reauthorization successful. Will retry inbox scan later.");
             } else {
                 throw e;
             }
@@ -136,62 +103,101 @@ public class GmailService {
 
     @Scheduled(fixedRate = 3600000)
     public void refreshProcessedEmailIds() {
-        logger.info("Refreshing processed email IDs to sync with external updates...");
+        logger.info("🔄 Refreshing processed email IDs...");
         loadProcessedEmailIds();
-        logger.info("Refreshed processed email IDs: {}", processedEmailIds);
+        logger.info("✅ Refreshed processed email IDs: {}", processedEmailIds);
     }
 
     private void loadProcessedEmailIdsWithRetries() throws InterruptedException {
         int retries = 3;
         processedEmailIds = new HashSet<>();
+
         while (retries > 0) {
             try {
                 loadProcessedEmailIds();
                 if (!processedEmailIds.isEmpty()) {
-                    logger.debug("Successfully loaded processed email IDs: {}", processedEmailIds);
+                    logger.debug("✅ Loaded processed email IDs: {}", processedEmailIds);
                     return;
                 }
-                logger.warn("Processed email IDs list is empty, retrying...");
+                logger.warn("⚠️ Processed email list is empty. Retrying...");
             } catch (Exception e) {
-                logger.error("Failed to load processed email IDs: {}", e.getMessage(), e);
+                logger.error("❌ Failed to load processed email IDs: {}", e.getMessage(), e);
             }
             retries--;
             if (retries > 0) {
                 Thread.sleep(2000);
             }
         }
-        logger.warn("Failed to load processed email IDs after 3 retries. Proceeding with empty set, which may cause reprocessing.");
+
+        logger.warn("⚠️ Gave up loading processed emails after 3 retries. Will proceed with empty list.");
     }
 
     private void loadProcessedEmailIds() {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("x-api-key", apexApiKey);
+
         HttpEntity<String> entity = new HttpEntity<>(headers);
+
         try {
-            logger.debug("Attempting to load processed email IDs from: {}", apexProcessedEmailsEndpoint);
+            logger.debug("🔍 Fetching processed email IDs from APEX at {}", apexProcessedEmailsEndpoint);
+
             ResponseEntity<ProcessedEmailsResponseDto> response = restTemplate.exchange(
                     apexProcessedEmailsEndpoint,
                     HttpMethod.GET,
                     entity,
                     new ParameterizedTypeReference<>() {}
             );
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null && response.getBody().getItems() != null) {
+
+            if (response.getStatusCode() == HttpStatus.OK &&
+                    response.getBody() != null &&
+                    response.getBody().getItems() != null) {
+
                 processedEmailIds.addAll(response.getBody().getItems().stream()
                         .map(ProcessedEmailIdDto::getEmailId)
                         .toList());
-                logger.debug("Loaded {} processed email IDs from APEX.", processedEmailIds.size());
+
+                logger.debug("✅ Loaded {} processed email IDs from APEX.", processedEmailIds.size());
+
             } else {
-                logger.warn("Received 200 OK but body or items list is null or empty from {}", apexProcessedEmailsEndpoint);
+                logger.warn("⚠️ APEX responded OK but no items found.");
             }
+
         } catch (HttpClientErrorException | HttpServerErrorException e) {
-            logger.error("HTTP Error loading processed email IDs: {} - {}", e.getStatusCode(), e.getStatusText());
-            e.getResponseBodyAsString();
-            logger.error("Response Body: {}", e.getResponseBodyAsString());
+            logger.error("❌ HTTP error while loading email IDs: {} - {}", e.getStatusCode(), e.getStatusText());
+            logger.error("📩 Response body: {}", e.getResponseBodyAsString());
             throw e;
         } catch (Exception e) {
-            logger.error("Failed to load processed email IDs: {}", e.getMessage(), e);
-            throw new RuntimeException("Unexpected error loading processed email IDs", e);
+            logger.error("❌ Unexpected error: {}", e.getMessage(), e);
+            throw new RuntimeException("Unexpected error loading processed emails", e);
         }
+    }
+
+    public void sendReplyEmail(SendReplyDto dto) throws Exception {
+        logger.info("📤 Sending reply email to {}", dto.getTo());
+
+        MimeMessage message = new MimeMessage(Session.getDefaultInstance(new Properties(), null));
+        message.setFrom(new InternetAddress(dto.getFrom()));
+        message.addRecipient(jakarta.mail.Message.RecipientType.TO, new InternetAddress(dto.getTo()));
+        message.setSubject(dto.getSubject());
+        message.setText(dto.getBody());
+
+        // Установка заголовка In-Reply-To (чтобы ответ связался с оригинальным письмом)
+        if (dto.getInReplyTo() != null && !dto.getInReplyTo().isEmpty()) {
+            message.setHeader("In-Reply-To", "<" + dto.getInReplyTo() + ">");
+            message.setHeader("References", "<" + dto.getInReplyTo() + ">");
+        }
+
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        message.writeTo(buffer);
+        byte[] rawMessageBytes = buffer.toByteArray();
+        String encodedEmail = Base64.getUrlEncoder().encodeToString(rawMessageBytes);
+
+        Message gmailMessage = new Message();
+        gmailMessage.setRaw(encodedEmail);
+
+        gmailClientService.getGmail().users().messages().send("me", gmailMessage).execute();
+
+        logger.info("✅ Reply email sent successfully");
     }
 }

@@ -6,6 +6,7 @@ import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.services.gmail.Gmail;
 import com.google.api.services.gmail.model.Message;
 import com.google.api.client.auth.oauth2.Credential;
+import lombok.Getter;
 import lt.dev.emailticketing.auth.GmailAuthService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -18,6 +19,7 @@ public class GmailClientService {
     private static final JsonFactory JSON_FACTORY = GsonFactory.getDefaultInstance();
 
     private final GmailAuthService gmailAuthService;
+    @Getter
     private Gmail gmail;
 
     @Value("${gmail.user.id}")
