@@ -2,35 +2,66 @@ DECLARE
 l_admin_email   VARCHAR2(255);
     l_sender_email  VARCHAR2(255);
     l_ticket_id     NUMBER;
-    l_url           VARCHAR2(1000) := 'https://2744-90-131-40-206.ngrok-free.app/send-email';
+    l_admin_id      NUMBER;
+    l_url           VARCHAR2(1000) := 'https://eb21-90-131-35-89.ngrok-free.app/send-email';
     l_json_payload  CLOB;
     l_response      CLOB;
 BEGIN
+    -- Get current APEX user email
     l_admin_email := LOWER(:APP_USER);
 
-SELECT t.ticket_id, s.sender_email
+    -- Ensure the admin exists in users table
+MERGE INTO users u
+    USING (SELECT l_admin_email AS email FROM dual) d
+    ON (u.email = d.email AND u.role = 'ADMIN')
+    WHEN NOT MATCHED THEN
+        INSERT (user_id, full_name, email, role, creation_date, update_date)
+            VALUES (DEFAULT, l_admin_email, l_admin_email, 'ADMIN', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    WHEN MATCHED THEN
+        UPDATE SET update_date = CURRENT_TIMESTAMP;
+
+-- Get admin's user_id
+BEGIN
+SELECT user_id INTO l_admin_id
+FROM users
+WHERE email = l_admin_email AND role = 'ADMIN';
+EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            APEX_DEBUG.ERROR('❌ Admin user not found even after MERGE.');
+            RAISE_APPLICATION_ERROR(-20001, 'Admin user not found.');
+END;
+
+    -- Get sender's email for the selected ticket
+BEGIN
+SELECT t.ticket_id, u.email
 INTO l_ticket_id, l_sender_email
 FROM tickets t
-         JOIN senders s ON t.sender_id = s.sender_id
-WHERE t.email_id = :P4_EMAIL_ID;
+         JOIN users u ON t.user_id = u.user_id
+WHERE t.ticket_id = :P4_TICKET_ID;
+EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            APEX_DEBUG.ERROR('❌ No ticket found for ticket_id: ' || :P4_TICKET_ID);
+            RAISE_APPLICATION_ERROR(-20002, 'Ticket not found for provided ticket ID.');
+END;
 
-INSERT INTO ticket_messages (
-    ticket_id, sender_role, sender_id, message_text
+    -- Insert admin's reply into messages
+INSERT INTO messages (
+    ticket_id, user_id, message_text, creation_date, update_date
 ) VALUES (
-             l_ticket_id, 'ADMIN', l_admin_email, :P4_WRITE_YOUR_ANSWER
+             l_ticket_id, l_admin_id, :P4_WRITE_YOUR_ANSWER, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
          );
 
--- Подготовка JSON тела запроса
+-- Prepare JSON payload for backend
 l_json_payload :=
         '{' ||
         '"to": "' || l_sender_email || '",' ||
         '"from": "' || l_admin_email || '",' ||
         '"subject": "' || REPLACE(:P4_TITLE, '"', '\"') || '",' ||
         '"body": "' || REPLACE(:P4_WRITE_YOUR_ANSWER, '"', '\"') || '",' ||
-        '"inReplyTo": "' || :P4_EMAIL_ID || '"' ||
+        '"inReplyTo": "' || :P4_EMAIL_ID || '"' ||  -- keep this if backend expects EMAIL_ID
         '}';
 
-    -- Очистка и установка заголовков
+    -- Send JSON to backend
     apex_web_service.clear_request_headers;
     apex_web_service.set_request_headers(
         p_name_01  => 'Content-Type',
@@ -39,7 +70,6 @@ l_json_payload :=
         p_value_02 => '1234-ABCD-5678-EFGH'
     );
 
-    -- Отправка POST запроса
     l_response := apex_web_service.make_rest_request(
         p_url         => l_url,
         p_http_method => 'POST',
@@ -51,7 +81,7 @@ COMMIT;
 
 EXCEPTION
     WHEN OTHERS THEN
-        APEX_DEBUG.ERROR('❌ Error: %s', SQLERRM);
+        APEX_DEBUG.ERROR('❌ Unexpected Error: %s', SQLERRM);
 ROLLBACK;
-raise;
+RAISE;
 END;
