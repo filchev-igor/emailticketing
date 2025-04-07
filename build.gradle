@@ -44,12 +44,16 @@ dependencies {
 
     implementation 'jakarta.validation:jakarta.validation-api:3.0.2'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+	testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.0'
+	testImplementation 'org.mockito:mockito-core:5.10.0'
 }
 
 tasks.named('test') {
 	useJUnitPlatform()
 }
 
-tasks.withType(JavaCompile) {
+tasks.withType(JavaCompile).configureEach {
 	options.release = 21
 }
