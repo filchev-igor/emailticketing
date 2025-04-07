@@ -1,7 +1,6 @@
 CREATE TABLE tickets (
                          ticket_id       NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                          email_id        VARCHAR2(255) NOT NULL UNIQUE,
-                         thread_id       VARCHAR2(255) NOT NULL UNIQUE,
                          subject         VARCHAR2(255) NOT NULL,
                          body            CLOB,
                          user_id         NUMBER NOT NULL, -- FK to users(user_id) where role = 'USER'

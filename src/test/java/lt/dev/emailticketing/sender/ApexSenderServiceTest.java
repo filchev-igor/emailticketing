@@ -35,8 +35,7 @@ class ApexSenderServiceTest {
                 "john@example.com",
                 "Subject",
                 "Body",
-                "2024-03-29T14:00:00Z",
-                "345"
+                "2024-03-29T14:00:00Z"
         );
 
         ResponseEntity<String> mockResponse = new ResponseEntity<>("OK", HttpStatus.OK);
@@ -57,8 +56,7 @@ class ApexSenderServiceTest {
                 "john@example.com",
                 "Subject",
                 "Body",
-                "2024-03-29T14:00:00Z",
-                "345"
+                "2024-03-29T14:00:00Z"
         );
         when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(String.class)))
                 .thenThrow(new RuntimeException("APEX down"));

@@ -174,7 +174,7 @@ public class GmailService {
     }
 
     public void sendReplyEmail(SendReplyDto dto) throws Exception {
-        logger.info("📤 Sending reply email to {}", dto);
+        logger.info("📤 Sending reply email to {}", dto.getTo());
 
         MimeMessage message = new MimeMessage(Session.getDefaultInstance(new Properties(), null));
         message.setFrom(new InternetAddress(dto.getFrom()));
@@ -182,10 +182,11 @@ public class GmailService {
         message.setSubject(dto.getSubject());
         message.setText(dto.getBody());
 
-        // Установка заголовка In-Reply-To (чтобы ответ связался с оригинальным письмом)
-        if (dto.getInReplyTo() != null && !dto.getInReplyTo().isEmpty()) {
-            message.setHeader("In-Reply-To", "<" + dto.getInReplyTo() + ">");
-            message.setHeader("References", "<" + dto.getInReplyTo() + ">");
+        // ✅ Set Gmail headers to ensure reply threading (on recipient side!)
+        if (dto.getMessageId() != null && !dto.getMessageId().isEmpty()) {
+            message.setHeader("In-Reply-To", dto.getMessageId());
+            message.setHeader("References", dto.getMessageId());
+            logger.info("📎 Using Message-ID for threading: {}", dto.getMessageId());
         }
 
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
@@ -197,12 +198,11 @@ public class GmailService {
         gmailMessage.setRaw(encodedEmail);
 
         if (dto.getThreadId() != null && !dto.getThreadId().isEmpty()) {
-            gmailMessage.setThreadId(dto.getThreadId()); // ✅ This connects the reply to the Gmail thread
+            gmailMessage.setThreadId(dto.getThreadId());
             logger.info("🧵 Using Gmail thread ID: {}", dto.getThreadId());
         }
 
         gmailClientService.getGmail().users().messages().send("me", gmailMessage).execute();
-
         logger.info("✅ Reply email sent successfully");
     }
 }

@@ -24,16 +24,12 @@ public class EmailRequestDto {
     @JsonProperty("gmail_date")
     private String gmailDate; // ISO 8601 string like "2024-03-29T16:02:00Z"
 
-    @JsonProperty("thread_id")
-    private String threadId;
-
-    public EmailRequestDto(String emailId, String senderName, String senderEmail, String subject, String body, String gmailDate, String threadId) {
+    public EmailRequestDto(String emailId, String senderName, String senderEmail, String subject, String body, String gmailDate) {
         this.emailId = emailId;
         this.senderName = senderName;
         this.senderEmail = senderEmail;
         this.subject = subject;
         this.body = body;
         this.gmailDate = gmailDate;
-        this.threadId = threadId;
     }
 }
