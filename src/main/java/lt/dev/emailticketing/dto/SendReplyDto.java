@@ -18,9 +18,10 @@ public class SendReplyDto {
     @JsonProperty("body")
     private String body;
 
-    @JsonProperty("messageId")
+    @JsonProperty("emailId")
+    private String emailId;
+
     private String messageId;
 
-    @JsonProperty("threadId")
     private String threadId;
 }

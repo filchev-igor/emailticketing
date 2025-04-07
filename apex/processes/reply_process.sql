@@ -34,8 +34,7 @@ END;
 
     -- Get sender's email based on ticket
 BEGIN
-SELECT u.email
-INTO l_sender_email
+SELECT u.email INTO l_sender_email
 FROM tickets t
          JOIN users u ON t.user_id = u.user_id
 WHERE t.ticket_id = l_ticket_id;
@@ -52,16 +51,15 @@ INSERT INTO messages (
              l_ticket_id, l_admin_id, :P4_WRITE_YOUR_ANSWER, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
          );
 
--- Build JSON for backend (now includes thread_id)
+-- Build JSON for backend
 l_json_payload :=
-    '{' ||
-    '"to": "' || l_sender_email || '",' ||
-    '"from": "' || l_admin_email || '",' ||
-    '"subject": "' || REPLACE(:P4_TITLE, '"', '\"') || '",' ||
-    '"body": "' || REPLACE(:P4_WRITE_YOUR_ANSWER, '"', '\"') || '",' ||
-    '"inReplyTo": "' || l_email_id || '",' ||
-    '"threadId": "' || :P4_THREAD_ID || '"' ||
-    '}';
+        '{' ||
+        '"to": "' || l_sender_email || '",' ||
+        '"from": "' || l_admin_email || '",' ||
+        '"subject": "' || REPLACE(:P4_TITLE, '"', '\"') || '",' ||
+        '"body": "' || REPLACE(:P4_WRITE_YOUR_ANSWER, '"', '\"') || '",' ||
+        '"emailId": "' || l_email_id || '"' ||
+        '}';
 
     -- Send JSON to backend
     apex_web_service.clear_request_headers;
