@@ -4,7 +4,7 @@ l_admin_email   VARCHAR2(255);
     l_ticket_id     NUMBER := :P4_TICKET_ID;
     l_email_id      VARCHAR2(255) := :P4_EMAIL_ID;
     l_admin_id      NUMBER;
-    l_url           VARCHAR2(1000) := 'https://eb21-90-131-35-89.ngrok-free.app/send-email';
+    l_url           VARCHAR2(1000) := 'https://16af-90-131-35-89.ngrok-free.app/send-email';
     l_json_payload  CLOB;
     l_response      CLOB;
 BEGIN
@@ -52,15 +52,16 @@ INSERT INTO messages (
              l_ticket_id, l_admin_id, :P4_WRITE_YOUR_ANSWER, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
          );
 
--- Build JSON for backend
+-- Build JSON for backend (now includes thread_id)
 l_json_payload :=
-        '{' ||
-        '"to": "' || l_sender_email || '",' ||
-        '"from": "' || l_admin_email || '",' ||
-        '"subject": "' || REPLACE(:P4_TITLE, '"', '\"') || '",' ||
-        '"body": "' || REPLACE(:P4_WRITE_YOUR_ANSWER, '"', '\"') || '",' ||
-        '"inReplyTo": "' || l_email_id || '"' ||
-        '}';
+    '{' ||
+    '"to": "' || l_sender_email || '",' ||
+    '"from": "' || l_admin_email || '",' ||
+    '"subject": "' || REPLACE(:P4_TITLE, '"', '\"') || '",' ||
+    '"body": "' || REPLACE(:P4_WRITE_YOUR_ANSWER, '"', '\"') || '",' ||
+    '"inReplyTo": "' || l_email_id || '",' ||
+    '"threadId": "' || :P4_THREAD_ID || '"' ||
+    '}';
 
     -- Send JSON to backend
     apex_web_service.clear_request_headers;

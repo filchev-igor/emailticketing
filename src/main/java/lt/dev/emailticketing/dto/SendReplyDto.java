@@ -20,4 +20,7 @@ public class SendReplyDto {
 
     @JsonProperty("inReplyTo")
     private String inReplyTo;
+
+    @JsonProperty("threadId")
+    private String threadId;
 }

@@ -58,13 +58,16 @@ public class EmailProcessingService {
                     ? Instant.ofEpochMilli(fullMsg.getInternalDate()).toString()
                     : Instant.now().toString();
 
+            String threadId = fullMsg.getThreadId();
+
             EmailRequestDto dto = new EmailRequestDto(
                     emailId,
                     senderInfo.name(),
                     senderInfo.email(),
                     subject,
                     body,
-                    gmailDate
+                    gmailDate,
+                    threadId
             );
 
             boolean success = apexSenderService.sendToApex(dto);

@@ -174,7 +174,7 @@ public class GmailService {
     }
 
     public void sendReplyEmail(SendReplyDto dto) throws Exception {
-        logger.info("📤 Sending reply email to {}", dto.getTo());
+        logger.info("📤 Sending reply email to {}", dto);
 
         MimeMessage message = new MimeMessage(Session.getDefaultInstance(new Properties(), null));
         message.setFrom(new InternetAddress(dto.getFrom()));
@@ -195,6 +195,11 @@ public class GmailService {
 
         Message gmailMessage = new Message();
         gmailMessage.setRaw(encodedEmail);
+
+        if (dto.getThreadId() != null && !dto.getThreadId().isEmpty()) {
+            gmailMessage.setThreadId(dto.getThreadId()); // ✅ This connects the reply to the Gmail thread
+            logger.info("🧵 Using Gmail thread ID: {}", dto.getThreadId());
+        }
 
         gmailClientService.getGmail().users().messages().send("me", gmailMessage).execute();
 
