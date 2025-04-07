@@ -3,6 +3,8 @@ l_provided_key VARCHAR2(200) := owa_util.get_cgi_env('x-api-key');
     l_expected_key VARCHAR2(200) := '1234-ABCD-5678-EFGH';
 
     l_email_id tickets.email_id%TYPE;
+    l_email_thread_id tickets.email_id%TYPE;
+    l_email_message_id tickets.email_id%TYPE;
     l_user_name users.full_name%TYPE;
     l_user_email users.email%TYPE;
     l_subject tickets.subject%TYPE;
@@ -41,6 +43,8 @@ END;
     IF l_json_parsed THEN
         -- Extract fields
         l_email_id := APEX_JSON.get_varchar2('email_id');
+        l_email_thread_id := APEX_JSON.get_varchar2('email_thread_id');
+        l_email_message_id := APEX_JSON.get_varchar2('email_message_id');
         l_user_name := APEX_JSON.get_varchar2('sender_name');
         l_user_email := APEX_JSON.get_varchar2('sender_email');
         l_subject := APEX_JSON.get_varchar2('subject');
@@ -66,9 +70,9 @@ WHERE email = l_user_email AND role = 'USER';
 
 -- Insert ticket
 INSERT INTO tickets (
-    email_id, user_id, subject, body, status, creation_date, update_date
+    email_id, email_thread_id, email_message_id, user_id, subject, body, status, creation_date, update_date
 ) VALUES (
-             l_email_id, l_user_id, l_subject, l_body, 'NEW',
+             l_email_id, l_email_thread_id, l_email_message_id, l_user_id, l_subject, l_body, 'NEW',
              TO_TIMESTAMP_TZ(l_gmail_date, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
              TO_TIMESTAMP_TZ(l_gmail_date, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
          );

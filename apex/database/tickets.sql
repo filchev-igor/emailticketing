@@ -1,9 +1,11 @@
 CREATE TABLE tickets (
                          ticket_id       NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                          email_id        VARCHAR2(255) NOT NULL UNIQUE,
+                         email_thread_id       VARCHAR2(255) NOT NULL UNIQUE,
+                         email_message_id      VARCHAR2(255) NOT NULL UNIQUE,
                          subject         VARCHAR2(255) NOT NULL,
                          body            CLOB,
-                         user_id         NUMBER NOT NULL, -- FK to users(user_id) where role = 'USER'
+                         user_id         NUMBER NOT NULL,
                          status          VARCHAR2(50) DEFAULT 'NEW' CHECK (status IN ('NEW', 'IN PROGRESS', 'CLOSED', 'RESOLVED')),
                          creation_date   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                          update_date     TIMESTAMP DEFAULT CURRENT_TIMESTAMP

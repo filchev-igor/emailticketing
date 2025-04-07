@@ -2,7 +2,6 @@ package lt.dev.emailticketing.service;
 
 import com.google.api.client.auth.oauth2.TokenResponseException;
 import com.google.api.services.gmail.model.Message;
-import com.google.api.services.gmail.model.MessagePartHeader;
 import jakarta.mail.Session;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
@@ -177,55 +176,25 @@ public class GmailService {
     public void sendReplyEmail(SendReplyDto dto) throws Exception {
         logger.info("📤 Sending reply email to {}", dto.getTo());
 
-        // 🔍 Fetch original Gmail message using internal emailId from APEX
-        Message originalMessage = gmailClientService.getGmail()
-                .users()
-                .messages()
-                .get("me", dto.getEmailId())
-                .execute();
-
-        // 🧵 Extract and set threadId
-        String threadId = originalMessage.getThreadId();
-        dto.setThreadId(threadId);
-        logger.info("🧵 Retrieved threadId: {}", threadId);
-
-        // 📎 Try to get the real Message-ID header for proper threading
-        String messageIdHeader = null;
-
-        if (originalMessage.getPayload() != null &&
-                originalMessage.getPayload().getHeaders() != null) {
-
-            messageIdHeader = originalMessage.getPayload().getHeaders().stream()
-                    .filter(h -> "Message-ID".equalsIgnoreCase(h.getName()))
-                    .map(MessagePartHeader::getValue)
-                    .findFirst()
-                    .orElse(null);
-        }
-
-        // 🧠 Use valid Message-ID if found
-        if (messageIdHeader != null) {
-            dto.setMessageId(messageIdHeader);
-            logger.info("📎 Found Message-ID header: {}", messageIdHeader);
-        } else {
-            dto.setMessageId(null); // Avoid invalid fallback
-            logger.warn("⚠️ No Message-ID header found in Gmail message {}. Skipping reply headers.", dto.getEmailId());
-        }
-
-        // ✉️ Create the reply email
         MimeMessage message = new MimeMessage(Session.getDefaultInstance(new Properties(), null));
         message.setFrom(new InternetAddress(dto.getFrom()));
         message.addRecipient(jakarta.mail.Message.RecipientType.TO, new InternetAddress(dto.getTo()));
         message.setSubject(dto.getSubject());
         message.setText(dto.getBody());
 
-        // 🧷 Set In-Reply-To and References only if we have a valid Message-ID
-        if (dto.getMessageId() != null) {
-            message.setHeader("In-Reply-To", dto.getMessageId());
-            message.setHeader("References", dto.getMessageId());
-            logger.info("📎 Set reply headers with Message-ID: {}", dto.getMessageId());
+        // 🧵 Set Gmail threading headers
+        if (dto.getMessageId() != null && !dto.getMessageId().isEmpty()) {
+            try {
+                String decodedMessageId = new String(Base64.getUrlDecoder().decode(dto.getMessageId()));
+                String inReplyTo = "<" + decodedMessageId + ">";
+                message.setHeader("In-Reply-To", inReplyTo);
+                message.setHeader("References", inReplyTo);
+                logger.debug("🔗 Added In-Reply-To + References: {}", inReplyTo);
+            } catch (IllegalArgumentException e) {
+                logger.warn("⚠️ Failed to decode messageId: '{}'", dto.getMessageId(), e);
+            }
         }
 
-        // ✉️ Encode and prepare for sending via Gmail API
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         message.writeTo(buffer);
         byte[] rawMessageBytes = buffer.toByteArray();
@@ -233,9 +202,13 @@ public class GmailService {
 
         Message gmailMessage = new Message();
         gmailMessage.setRaw(encodedEmail);
-        gmailMessage.setThreadId(threadId); // ✅ Always set for Gmail threading
+
+        // 🔗 Set threadId to keep it in the same thread in Gmail
+        if (dto.getThreadId() != null && !dto.getThreadId().isEmpty()) {
+            gmailMessage.setThreadId(dto.getThreadId());
+        }
 
         gmailClientService.getGmail().users().messages().send("me", gmailMessage).execute();
-        logger.info("✅ Reply email sent successfully in thread {}", threadId);
+        logger.info("✅ Reply email sent successfully");
     }
 }
