@@ -184,15 +184,9 @@ public class GmailService {
 
         // 🧵 Set Gmail threading headers
         if (dto.getMessageId() != null && !dto.getMessageId().isEmpty()) {
-            try {
-                String decodedMessageId = new String(Base64.getUrlDecoder().decode(dto.getMessageId()));
-                String inReplyTo = "<" + decodedMessageId + ">";
-                message.setHeader("In-Reply-To", inReplyTo);
-                message.setHeader("References", inReplyTo);
-                logger.debug("🔗 Added In-Reply-To + References: {}", inReplyTo);
-            } catch (IllegalArgumentException e) {
-                logger.warn("⚠️ Failed to decode messageId: '{}'", dto.getMessageId(), e);
-            }
+            message.setHeader("In-Reply-To", dto.getMessageId()); // already wrapped with <>
+            message.setHeader("References", dto.getMessageId());
+            logger.debug("🔗 Added In-Reply-To + References: {}", dto.getMessageId());
         }
 
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();

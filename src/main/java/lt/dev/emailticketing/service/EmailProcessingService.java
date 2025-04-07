@@ -62,8 +62,11 @@ public class EmailProcessingService {
 
             String emailThreadId = fullMsg.getThreadId();
 
-            String emailMessageId = fullMsg.getId();
-            String base64MessageId = Base64.getEncoder().encodeToString(emailMessageId.getBytes(StandardCharsets.UTF_8));
+            String messageId = fullMsg.getPayload().getHeaders().stream()
+                    .filter(h -> "Message-ID".equalsIgnoreCase(h.getName()))
+                    .findFirst()
+                    .map(MessagePartHeader::getValue)
+                    .orElse(null);
 
             EmailRequestDto dto = new EmailRequestDto(
                     emailId,
@@ -72,7 +75,7 @@ public class EmailProcessingService {
                     subject,
                     body,
                     gmailDate,
-                    base64MessageId,
+                    messageId,
                     emailThreadId
             );
 
