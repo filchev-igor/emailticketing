@@ -1,7 +1,8 @@
 DECLARE
 l_admin_email   VARCHAR2(255);
     l_sender_email  VARCHAR2(255);
-    l_ticket_id     NUMBER;
+    l_ticket_id     NUMBER := :P4_TICKET_ID;
+    l_email_id      VARCHAR2(255) := :P4_EMAIL_ID;
     l_admin_id      NUMBER;
     l_url           VARCHAR2(1000) := 'https://eb21-90-131-35-89.ngrok-free.app/send-email';
     l_json_payload  CLOB;
@@ -31,16 +32,16 @@ EXCEPTION
             RAISE_APPLICATION_ERROR(-20001, 'Admin user not found.');
 END;
 
-    -- Get sender's email for the selected ticket
+    -- Get sender's email based on ticket
 BEGIN
-SELECT t.ticket_id, u.email
-INTO l_ticket_id, l_sender_email
+SELECT u.email
+INTO l_sender_email
 FROM tickets t
          JOIN users u ON t.user_id = u.user_id
-WHERE t.ticket_id = :P4_TICKET_ID;
+WHERE t.ticket_id = l_ticket_id;
 EXCEPTION
         WHEN NO_DATA_FOUND THEN
-            APEX_DEBUG.ERROR('❌ No ticket found for ticket_id: ' || :P4_TICKET_ID);
+            APEX_DEBUG.ERROR('❌ No ticket/user found for ticket_id: ' || l_ticket_id);
             RAISE_APPLICATION_ERROR(-20002, 'Ticket not found for provided ticket ID.');
 END;
 
@@ -51,14 +52,14 @@ INSERT INTO messages (
              l_ticket_id, l_admin_id, :P4_WRITE_YOUR_ANSWER, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
          );
 
--- Prepare JSON payload for backend
+-- Build JSON for backend
 l_json_payload :=
         '{' ||
         '"to": "' || l_sender_email || '",' ||
         '"from": "' || l_admin_email || '",' ||
         '"subject": "' || REPLACE(:P4_TITLE, '"', '\"') || '",' ||
         '"body": "' || REPLACE(:P4_WRITE_YOUR_ANSWER, '"', '\"') || '",' ||
-        '"inReplyTo": "' || :P4_EMAIL_ID || '"' ||  -- keep this if backend expects EMAIL_ID
+        '"inReplyTo": "' || l_email_id || '"' ||
         '}';
 
     -- Send JSON to backend
