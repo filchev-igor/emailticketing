@@ -63,6 +63,7 @@ public class GmailService {
         gmailClientService.initClient();
     }
 
+    // In GmailService.java - modify the scanInbox method
     @Scheduled(fixedRate = 60000)
     public void scanInbox() throws Exception {
         logger.info("📥 Scanning Gmail inbox for new messages...");
@@ -79,17 +80,19 @@ public class GmailService {
                     for (Message msg : messages) {
                         String emailId = msg.getId();
 
-                        if (!processedEmailIds.contains(emailId)) {
-                            executorWrapper.submit(() -> emailProcessingService.processEmail(emailId, processedEmailIds));
-                        } else {
-                            logger.debug("🔁 Skipping already processed email with ID: {}", emailId);
+                        if (processedEmailIds.contains(emailId)) {
+                            logger.debug("🔁 Skipping already processed email ID: {}", emailId);
+                            continue;
                         }
+
+                        executorWrapper.submit(() -> {
+                            emailProcessingService.processEmail(emailId, processedEmailIds);
+                        });
                     }
                 }
             } else {
                 logger.info("No new messages found in inbox.");
             }
-
         } catch (TokenResponseException e) {
             if (e.getDetails() != null && "invalid_grant".equals(e.getDetails().getError())) {
                 logger.warn("⚠️ OAuth token expired or revoked. Reauthorizing...");
