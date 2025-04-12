@@ -59,7 +59,7 @@ public class EmailProcessingService {
 
             if (isReply) {
                 // Get ticket ID from email ID (you may need to call APEX to get this)
-                Long ticketId = ticketService.getTicketIdByEmailId(emailId);
+                Long ticketId = ticketService.getTicketIdByThreadId(emailThreadId);
 
                 if (ticketId != null) {
                     MessageReplyDto replyDto = new MessageReplyDto(

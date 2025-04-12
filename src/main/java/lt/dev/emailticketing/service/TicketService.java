@@ -1,6 +1,6 @@
 package lt.dev.emailticketing.service;
 
-import lt.dev.emailticketing.dto.TicketByEmailResponseDto;
+import lt.dev.emailticketing.dto.TicketByThreadDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,7 +20,7 @@ public class TicketService {
     private static final Logger logger = LoggerFactory.getLogger(TicketService.class);
 
     private final RestTemplate restTemplate;
-    private final Map<String, Long> emailIdToTicketIdCache = new ConcurrentHashMap<>();
+    private final Map<String, Long> threadIdToTicketIdCache = new ConcurrentHashMap<>();
 
     @Value("${apex.tickets.endpoint}")
     private String apexTicketsEndpoint;
@@ -32,14 +32,14 @@ public class TicketService {
         this.restTemplate = restTemplate;
     }
 
-    public Long getTicketIdByEmailId(String emailId) {
-        return emailIdToTicketIdCache.computeIfAbsent(emailId, this::fetchTicketIdFromApex);
+    public Long getTicketIdByThreadId(String threadId) {
+        return threadIdToTicketIdCache.computeIfAbsent(threadId, this::fetchTicketIdFromApex);
     }
 
-    private Long fetchTicketIdFromApex(String emailId) {
+    private Long fetchTicketIdFromApex(String threadId) {
         try {
             String url = UriComponentsBuilder.fromUriString(apexTicketsEndpoint)
-                    .queryParam("emailId", emailId)
+                    .queryParam("email_thread_id", threadId)
                     .build()
                     .toUriString();
 
@@ -47,42 +47,45 @@ public class TicketService {
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.set("x-api-key", apexApiKey);
 
-            ResponseEntity<TicketByEmailResponseDto> response = restTemplate.exchange(
+            logger.debug("Attempting to call APEX API with URL: {}", url);
+
+            ResponseEntity<TicketByThreadDto> response = restTemplate.exchange(
                     url,
                     HttpMethod.GET,
                     new HttpEntity<>(headers),
                     new ParameterizedTypeReference<>() {}
             );
 
-            if (response.getStatusCode() == HttpStatus.OK
-                    && response.getBody() != null
-                    && response.getBody().getItems() != null
-                    && !response.getBody().getItems().isEmpty()) {
+            logger.debug("APEX API response: {}", response);
 
-                Long ticketId = response.getBody().getItems().getFirst().getTicketId();
-                logger.debug("✅ Found ticket ID {} for email ID {}", ticketId, emailId);
-                return ticketId;
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                Long ticketId = response.getBody().getTicketId();
+                if (ticketId != null) {
+                    logger.debug("✅ Found ticket ID {} for thread ID {}", ticketId, threadId);
+
+                    return ticketId;
+                }
             }
 
-            logger.warn("⚠️ No ticket found for email ID {}", emailId);
+            logger.warn("⚠️ No ticket found for thread ID {}", threadId);
             return null;
 
         } catch (HttpClientErrorException e) {
             if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
-                logger.debug("ℹ️ No ticket found for email ID {}", emailId);
+                logger.debug("ℹ️ No ticket found for thread ID {}", threadId);
                 return null;
             }
             logger.error("❌ HTTP error fetching ticket: {} - {}", e.getStatusCode(), e.getStatusText());
             throw e;
         } catch (Exception e) {
             logger.error("❌ Unexpected error: {}", e.getMessage(), e);
-            throw new RuntimeException("Error fetching ticket by email ID", e);
+            throw new RuntimeException("Error fetching ticket by thread ID", e);
         }
     }
 
-    @Scheduled(fixedRate = 3600000) // Refresh cache every hour
+    @Scheduled(fixedRate = 3600000)
     public void refreshCache() {
-        emailIdToTicketIdCache.clear();
+        threadIdToTicketIdCache.clear();
         logger.info("🔄 Cleared ticket ID cache");
     }
 }
