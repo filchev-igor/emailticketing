@@ -1,7 +1,7 @@
 CREATE TABLE messages (
                           message_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                           ticket_id NUMBER NOT NULL,
-                          email_message_id VARCHAR2(255) NOT NULL UNIQUE,
+                          email_message_id VARCHAR2(255) NOT NULL, -- Removed UNIQUE
                           user_id NUMBER NOT NULL,
                           message_text CLOB NOT NULL,
                           creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

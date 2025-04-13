@@ -1,5 +1,6 @@
 CREATE TABLE processed_replies (
-                                   email_id VARCHAR2(255) PRIMARY KEY,
+                                   reply_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                                   email_id VARCHAR2(255) NOT NULL,
                                    ticket_id NUMBER NOT NULL,
                                    creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                                    update_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -12,6 +13,5 @@ BEFORE UPDATE ON processed_replies
 BEGIN
     :NEW.update_date := CURRENT_TIMESTAMP;
 END;
-/
 
 CREATE INDEX idx_processed_replies_ticket_id ON processed_replies (ticket_id);
