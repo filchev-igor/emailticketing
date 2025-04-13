@@ -1,0 +1,50 @@
+[User Email: filchev.igor@gmail.com]
+        |
+        v
+[Gmail Inbox: example@example.com]
+        |
+        v
+[Java: GmailService]
+    Scans inbox, fetches email
+    EmailProcessingService:
+    - New email -> EmailRequestDto
+    - Reply -> MessageReplyDto (ticket_id via TicketService)
+        |
+        v
+[ApexSenderService]
+    POST /tickets_api/tickets (new)
+    POST /tickets_api/messages (reply)
+        |
+        v
+[APEX REST: /tickets_api/tickets]
+    - Upserts users (email, role='USER')
+    - Inserts tickets (ticket_id=22, email_id, thread_id)
+    - Inserts processed_emails (email_id)
+        |
+[APEX REST: /tickets_api/messages]
+    - Validates ticket_id
+    - Resolves user_id (users.email or tickets.user_id)
+    - Inserts messages (ticket_id, user_id, message_text)
+        |
+        v
+[Database]
+    users: (user_id=1, email='filchev.igor@gmail.com', role='USER')
+           (user_id=2, email='example@example.com', role='ADMIN')
+    tickets: (ticket_id=22, email_id='19611f43bf2d1d93', thread_id='195be0b38ae4bd49', user_id=1)
+    messages: (message_id=1, ticket_id=22, user_id=2, text='Do you have a cat?')
+              (message_id=2, ticket_id=22, user_id=1, text='Sorry...')
+    processed_emails: (email_id='19611f43bf2d1d93')
+        |
+        v
+[Admin Reply: example@example.com]
+    Java sends reply to Gmail thread
+    Adds to messages table
+        |
+        v
+[User Reply]
+    Java processes, adds to messages
+    Risk: Multiple inserts
+        |
+        v
+[Admin Closes]
+    Updates tickets.status = 'RESOLVED'

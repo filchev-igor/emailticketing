@@ -13,3 +13,5 @@ BEGIN
     :NEW.update_date := CURRENT_TIMESTAMP;
 END;
 /
+
+CREATE INDEX idx_processed_replies_ticket_id ON processed_replies (ticket_id);

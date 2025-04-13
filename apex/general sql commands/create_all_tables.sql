@@ -1,9 +1,9 @@
--- Drop tables in reverse order to handle foreign keys
+-- Drop tables in reverse order to handle foreign key dependencies
 BEGIN
 EXECUTE IMMEDIATE 'DROP TABLE messages CASCADE CONSTRAINTS';
 EXCEPTION
     WHEN OTHERS THEN
-        IF SQLCODE != -942 THEN RAISE; END IF;
+        IF SQLCODE != -942 THEN RAISE; END IF; -- Ignore "table does not exist" errors
 END;
 /
 BEGIN
@@ -43,8 +43,8 @@ CREATE TABLE users (
                        role VARCHAR2(20) DEFAULT 'USER' CHECK (role IN ('USER', 'ADMIN')) NOT NULL,
                        creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                        update_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                       UNIQUE (email, role),
-                       CHECK (email LIKE '%_@_%._%')
+                       UNIQUE (email),
+                       CHECK (REGEXP_LIKE(email, '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'))
 );
 
 CREATE OR REPLACE TRIGGER trg_users_update

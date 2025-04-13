@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
 @Service
@@ -19,51 +20,60 @@ public class ApexSenderService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
-    // ✅ Optional setters (for test)
     @Setter
     @Value("${apex.tickets.endpoint}")
     private String apexTicketsEndpoint;
 
     @Setter
-    @Value("${apex.api.key}")
-    private String apexApiKey;
-
-    @Setter
     @Value("${apex.messages.endpoint}")
     private String apexMessagesEndpoint;
 
-    // ✅ Add this constructor
+    @Value("${apex.api.key}")
+    private String apexApiKey;
+
     public ApexSenderService(RestTemplate restTemplate, ObjectMapper objectMapper) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
     }
 
     public boolean sendToApex(Object dto) {
+        String endpoint;
+        if (dto instanceof EmailRequestDto) {
+            endpoint = apexTicketsEndpoint;
+        } else if (dto instanceof MessageReplyDto) {
+            endpoint = apexMessagesEndpoint;
+        } else {
+            logger.error("Unsupported DTO type: {}", dto.getClass().getName());
+            return false;
+        }
+
         try {
-            String endpoint;
-
-            if (dto instanceof EmailRequestDto) {
-                endpoint = apexTicketsEndpoint;
-            } else if (dto instanceof MessageReplyDto) {
-                endpoint = apexMessagesEndpoint;
-            } else {
-                throw new IllegalArgumentException("Unsupported DTO type");
-            }
-
-            String json = objectMapper.writeValueAsString(dto);
-            logger.debug("Sending DTO to APEX: {}", json);
-
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.set("x-api-key", apexApiKey);
+            String json = objectMapper.writeValueAsString(dto);
+            HttpEntity<String> entity = new HttpEntity<>(json, headers);
 
-            HttpEntity<String> request = new HttpEntity<>(json, headers);
-            ResponseEntity<String> response = restTemplate.postForEntity(endpoint, request, String.class);
+            logger.debug("Sending to APEX: {}", json);
+            ResponseEntity<String> response = restTemplate.exchange(
+                    endpoint, HttpMethod.POST, entity, String.class);
 
-            logger.debug("APEX Response Status: {}", response.getStatusCode());
-            return response.getStatusCode().is2xxSuccessful();
+            if (response.getStatusCode().is2xxSuccessful()) {
+                logger.info("Successfully sent to APEX: {}", endpoint);
+                return true;
+            } else {
+                logger.warn("APEX returned non-2xx status: {}", response.getStatusCode());
+                return false;
+            }
+        } catch (HttpClientErrorException e) {
+            if (e.getStatusCode() == HttpStatus.CONFLICT && dto instanceof MessageReplyDto) {
+                logger.info("Reply already processed by APEX: {}", ((MessageReplyDto) dto).getEmailId());
+                return true;
+            }
+            logger.error("HTTP error sending to APEX: {}", e.getResponseBodyAsString(), e);
+            return false;
         } catch (Exception e) {
-            logger.error("Failed to send to APEX", e);
+            logger.error("Unexpected error sending to APEX: {}", e.getMessage(), e);
             return false;
         }
     }
