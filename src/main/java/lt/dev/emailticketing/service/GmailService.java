@@ -180,21 +180,57 @@ public class GmailService {
         message.addRecipient(jakarta.mail.Message.RecipientType.TO, new InternetAddress(dto.getTo()));
         message.setSubject(dto.getSubject());
         message.setText(dto.getBody());
-        if (dto.getMessageId() != null && !dto.getMessageId().isEmpty()) {
-            message.setHeader("In-Reply-To", dto.getMessageId());
-            message.setHeader("References", dto.getMessageId());
-            logger.debug("🔗 Added In-Reply-To + References: {}", dto.getMessageId());
+
+        // Set Message-ID for the reply
+        String replyMessageId = dto.getMessageId() != null ? dto.getMessageId() : UUID.randomUUID().toString();
+        message.setHeader("Message-ID", "<" + replyMessageId + "@emailticketing>");
+
+        // Handle threading headers
+        if (dto.getParentMessageId() != null && !dto.getParentMessageId().isEmpty()) {
+            // Set In-Reply-To to the parent message ID
+            message.setHeader("In-Reply-To", dto.getParentMessageId());
+
+            // Build References header
+            String references = dto.getParentMessageId();
+            // Optionally, retrieve the original email's References header
+            // Example: Fetch from Gmail API if available
+            // String originalReferences = fetchOriginalReferences(dto.getEmailId());
+            // if (originalReferences != null && !originalReferences.isEmpty()) {
+            //     references = originalReferences + " " + dto.getParentMessageId();
+            // }
+            message.setHeader("References", references);
+            logger.debug("🔗 Added In-Reply-To: {}, References: {}", dto.getParentMessageId(), references);
+        } else {
+            logger.warn("⚠️ No parentMessageId provided; reply may not thread correctly");
         }
+
+        // Ensure MIME structure supports threading
+        message.setContent(dto.getBody(), "text/plain; charset=UTF-8");
+
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         message.writeTo(buffer);
         byte[] rawMessageBytes = buffer.toByteArray();
         String encodedEmail = Base64.getUrlEncoder().encodeToString(rawMessageBytes);
+
         Message gmailMessage = new Message();
         gmailMessage.setRaw(encodedEmail);
+
+        // Set Gmail threadId for threading
         if (dto.getThreadId() != null && !dto.getThreadId().isEmpty()) {
             gmailMessage.setThreadId(dto.getThreadId());
+            logger.debug("🔗 Set Gmail threadId: {}", dto.getThreadId());
+        } else {
+            logger.warn("⚠️ No threadId provided; reply may not thread correctly in Gmail");
         }
-        gmailClientService.getGmail().users().messages().send("me", gmailMessage).execute();
-        logger.info("✅ Reply email sent successfully");
+
+        com.google.api.services.gmail.model.Message sentMessage = gmailClientService.getGmail()
+                .users()
+                .messages()
+                .send("me", gmailMessage)
+                .execute();
+
+        logger.info("✅ Reply email sent successfully with Gmail Message ID: {}", sentMessage.getId());
+        // Store the Gmail-assigned message ID if needed
+        sentMessage.setId(sentMessage.getId());
     }
 }

@@ -26,4 +26,7 @@ public class SendReplyDto {
 
     @JsonProperty("emailMessageId")
     private String messageId;
+
+    @JsonProperty("parentMessageId")
+    private String parentMessageId;
 }
