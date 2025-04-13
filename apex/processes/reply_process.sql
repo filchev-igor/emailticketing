@@ -1,17 +1,19 @@
 DECLARE
-l_admin_email   VARCHAR2(255);
-    l_sender_email  VARCHAR2(255);
-    l_ticket_id     NUMBER := :P4_TICKET_ID;
-    l_email_id      VARCHAR2(255) := :P4_EMAIL_ID;
-    l_admin_id      NUMBER;
-    l_url           VARCHAR2(1000) := 'https://16af-90-131-35-89.ngrok-free.app/send-email';
-    l_json_payload  CLOB;
-    l_response      CLOB;
+l_admin_email      VARCHAR2(255);
+    l_sender_email     VARCHAR2(255);
+    l_ticket_id        NUMBER := :P4_TICKET_ID;
+    l_email_id         VARCHAR2(255) := :P4_EMAIL_ID;
+    l_email_thread_id  VARCHAR2(255);
+    l_email_message_id VARCHAR2(255);
+    l_admin_id         NUMBER;
+    l_url              VARCHAR2(1000) := 'https://2a7a-90-131-47-209.ngrok-free.app/send-email';
+    l_json_payload     CLOB;
+    l_response         CLOB;
 BEGIN
     -- Get current APEX user email
     l_admin_email := LOWER(:APP_USER);
 
-    -- Ensure the admin exists in users table
+    -- Ensure the admin exists
 MERGE INTO users u
     USING (SELECT l_admin_email AS email FROM dual) d
     ON (u.email = d.email AND u.role = 'ADMIN')
@@ -21,7 +23,7 @@ MERGE INTO users u
     WHEN MATCHED THEN
         UPDATE SET update_date = CURRENT_TIMESTAMP;
 
--- Get admin's user_id
+-- Get admin user ID
 BEGIN
 SELECT user_id INTO l_admin_id
 FROM users
@@ -32,9 +34,10 @@ EXCEPTION
             RAISE_APPLICATION_ERROR(-20001, 'Admin user not found.');
 END;
 
-    -- Get sender's email based on ticket
+    -- Get ticket-related data
 BEGIN
-SELECT u.email INTO l_sender_email
+SELECT u.email, t.email_thread_id, t.email_message_id
+INTO l_sender_email, l_email_thread_id, l_email_message_id
 FROM tickets t
          JOIN users u ON t.user_id = u.user_id
 WHERE t.ticket_id = l_ticket_id;
@@ -51,17 +54,19 @@ INSERT INTO messages (
              l_ticket_id, l_admin_id, :P4_WRITE_YOUR_ANSWER, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
          );
 
--- Build JSON for backend
+-- Build JSON payload including thread + message ID
 l_json_payload :=
         '{' ||
         '"to": "' || l_sender_email || '",' ||
         '"from": "' || l_admin_email || '",' ||
         '"subject": "' || REPLACE(:P4_TITLE, '"', '\"') || '",' ||
         '"body": "' || REPLACE(:P4_WRITE_YOUR_ANSWER, '"', '\"') || '",' ||
-        '"emailId": "' || l_email_id || '"' ||
+        '"emailId": "' || l_email_id || '",' ||
+        '"emailThreadId": "' || l_email_thread_id || '",' ||
+        '"emailMessageId": "' || l_email_message_id || '"' ||
         '}';
 
-    -- Send JSON to backend
+    -- Send the request
     apex_web_service.clear_request_headers;
     apex_web_service.set_request_headers(
         p_name_01  => 'Content-Type',
