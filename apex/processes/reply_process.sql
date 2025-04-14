@@ -30,8 +30,8 @@ APEX_DEBUG.INFO('🏛️ Current schema: %s', l_schema_name);
 
     -- Ensure the admin exists or use existing user
 MERGE INTO users u
-    USING (SELECT l_admin_email AS email FROM dual) d
-    ON (u.email = d.email)
+    USING (SELECT l_admin_email AS email, 'ADMIN' AS role FROM dual) d
+    ON (u.email = d.email AND u.role = d.role)
     WHEN NOT MATCHED THEN
         INSERT (user_id, full_name, email, role, creation_date, update_date)
             VALUES (DEFAULT, l_admin_email, l_admin_email, 'ADMIN', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -42,7 +42,7 @@ MERGE INTO users u
 BEGIN
 SELECT user_id INTO l_admin_id
 FROM users
-WHERE email = l_admin_email;
+WHERE email = l_admin_email AND role = 'ADMIN';
 APEX_DEBUG.INFO('👤 Admin user_id: %s', l_admin_id);
 EXCEPTION
         WHEN NO_DATA_FOUND THEN

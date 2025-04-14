@@ -5,7 +5,7 @@ CREATE TABLE users (
                        role VARCHAR2(20) DEFAULT 'USER' CHECK (role IN ('USER', 'ADMIN')) NOT NULL,
                        creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                        update_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                       UNIQUE (email),
+                       CONSTRAINT uk_users_email_role UNIQUE (email, role), -- Composite unique constraint
                        CHECK (REGEXP_LIKE(email, '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'))
 );
 
