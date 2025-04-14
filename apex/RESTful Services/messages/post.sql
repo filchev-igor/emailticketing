@@ -128,4 +128,3 @@ EXCEPTION
         owa_util.status_line(500, 'Internal Server Error');
         HTP.P('{"error":"Internal Server Error","details":"' || REPLACE(SQLERRM, '"', '') || '"}');
 END;
-/

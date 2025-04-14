@@ -11,9 +11,7 @@ import lt.dev.emailticketing.sender.ApexSenderService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
+import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
@@ -144,17 +142,51 @@ public class EmailProcessingService {
             HttpHeaders headers = new HttpHeaders();
             headers.set("x-api-key", apexApiKey);
             HttpEntity<String> entity = new HttpEntity<>(headers);
-            restTemplate.getForEntity(endpoint, String.class);
-            return true;
-        } catch (HttpClientErrorException e) {
-            if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
-                return false;
+
+            // Log the request for debugging
+            logger.debug("Calling endpoint: {} with x-api-key: {}", endpoint, apexApiKey);
+
+            // Use exchange to include the HttpEntity with headers
+            ResponseEntity<String> response = restTemplate.exchange(endpoint, HttpMethod.GET, entity, String.class);
+
+            // Log the response status and body
+            logger.debug("Received response for emailId {}: Status={}, Body={}", emailId, response.getStatusCode(), response.getBody());
+
+            // Check the response status and body
+            if (response.getStatusCode() == HttpStatus.OK) {
+                String responseBody = response.getBody();
+                if (responseBody != null && responseBody.contains("\"status\":\"processed\"")) {
+                    logger.debug("Reply processed for emailId {}", emailId);
+                    return true;
+                } else {
+                    logger.warn("Unexpected response body for emailId {}: {}", emailId, responseBody);
+                    return false; // Changed from true to false for consistency
+                }
+            } else {
+                logger.warn("Unexpected status code for emailId {}: {}", emailId, response.getStatusCode());
+                return false; // Fallback for unexpected status codes
             }
-            logger.error("Error checking processed reply {}: {}", emailId, e.getMessage());
-            return true;
+        } catch (HttpClientErrorException e) {
+            logger.debug("HttpClientErrorException for emailId {}: Status={}, Body={}", emailId, e.getStatusCode(), e.getResponseBodyAsString());
+            if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
+                String responseBody = e.getResponseBodyAsString();
+                if (responseBody != null && responseBody.contains("\"status\":\"not_processed\"")) {
+                    logger.debug("Reply not processed for emailId {}", emailId);
+                    return false;
+                } else {
+                    logger.warn("Unexpected 404 response body for emailId {}: {}", emailId, responseBody);
+                    return false; // Still return false, but log the anomaly
+                }
+            } else if (e.getStatusCode() == HttpStatus.UNAUTHORIZED) {
+                logger.error("Unauthorized access for emailId {}: {}", emailId, e.getMessage());
+                throw new RuntimeException("Unauthorized access to processed replies API", e);
+            } else {
+                logger.error("HTTP error checking processed reply for emailId {}: {} - {}", emailId, e.getStatusCode(), e.getMessage());
+                throw new RuntimeException("Failed to check processed reply for emailId " + emailId, e);
+            }
         } catch (Exception e) {
-            logger.error("Unexpected error checking processed reply {}: {}", emailId, e.getMessage());
-            return true;
+            logger.error("Unexpected error checking processed reply for emailId {}: {}", emailId, e.getMessage(), e);
+            throw new RuntimeException("Unexpected error checking processed reply for emailId " + emailId, e);
         }
     }
 
